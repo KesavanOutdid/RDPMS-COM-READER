@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docklight Serial Monitor</title>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f0f0f0;
+            color: #212529;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Toolbar/Header */
+        .toolbar {
+            background-color: #e1e1e1;
+            border-bottom: 1px solid #bcbcbc;
+            padding: 5px 15px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            height: 45px;
+            box-shadow: inset 0 1px 0 #fff;
+        }
+
+        .toolbar h1 {
+            font-size: 14px;
+            font-weight: bold;
+            color: #444;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .tool-btn {
+            padding: 4px 10px;
+            background: #fdfdfd;
+            border: 1px solid #aaa;
+            border-radius: 3px;
+            font-size: 12px;
+            cursor: pointer;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+
+        .tool-btn:hover { background: #eee; }
+        .tool-btn:active { background: #ddd; box-shadow: inset 0 1px 2px rgba(0,0,0,0.2); }
+
+        /* Main Workspace Layout */
+        .workspace {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            padding: 10px;
+            gap: 10px;
+        }
+
+        /* Project / Send Sequences Panel */
+        .project-panel {
+            width: 350px;
+            background: white;
+            border: 1px solid #ccc;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+        }
+
+        .panel-header {
+            background: #d4e3f5;
+            padding: 5px 10px;
+            font-size: 12px;
+            font-weight: bold;
+            border-bottom: 1px solid #aaa;
+            color: #003366;
+        }
+
+        .sequence-grid-header {
+            display: grid;
+            grid-template-columns: 40px 1fr 1.5fr;
+            background: #f0f0f0;
+            padding: 4px 5px;
+            font-size: 11px;
+            font-weight: bold;
+            border-bottom: 1px solid #ccc;
+            color: #555;
+            text-align: left;
+        }
+
+        .sequences-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .sequence-item {
+            display: grid;
+            grid-template-columns: 40px 1fr 1.5fr;
+            align-items: center;
+            border-bottom: 1px solid #eee;
+            font-size: 11px;
+            padding: 2px 0;
+        }
+
+        .sequence-item:hover { background: #f0f7ff; }
+        
+        .seq-col { padding: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .seq-send-btn { 
+            background: none; border: none; cursor: pointer; color: #28a745; font-size: 14px; 
+            display: flex; justify-content: center;
+        }
+        .seq-send-btn:hover { color: #218838; }
+        .seq-send-btn:disabled { color: #ccc; cursor: not-allowed; }
+
+        .sequence-name { font-weight: 500; color: #333; }
+        .sequence-data { color: #666; font-family: monospace; }
+
+        /* Communication Window */
+        .communication-window {
+            flex: 1;
+            background: white;
+            border: 1px solid #ccc;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 0 10px rgba(0,0,0,0.05);
+        }
+
+        .terminal {
+            flex: 1;
+            padding: 10px;
+            font-family: "Consolas", "Courier New", monospace;
+            font-size: 13px;
+            line-height: 1.3;
+            overflow-y: auto;
+            background: #fff;
+        }
+
+        .log-entry { margin-bottom: 2px; }
+        .timestamp { color: #888; font-size: 11px; margin-right: 10px; }
+        .direction { font-weight: bold; margin-right: 10px; }
+        .rx { color: #0000CC; } /* Received blue */
+        .tx { color: #CC0000; } /* Transmitted red */
+        .msg { color: #000; }
+
+        /* Command Input Section */
+        .command-bar {
+            padding: 10px;
+            background: #f8f9fa;
+            border-top: 1px solid #ccc;
+            display: flex;
+            gap: 10px;
+        }
+
+        .command-input {
+            flex: 1;
+            padding: 6px 10px;
+            border: 1px solid #aaa;
+            font-family: monospace;
+            font-size: 14px;
+        }
+
+        /* Status Bar */
+        .status-bar {
+            background: #e1e1e1;
+            border-top: 1px solid #bcbcbc;
+            padding: 2px 15px;
+            font-size: 11px;
+            display: flex;
+            justify-content: space-between;
+            color: #444;
+        }
+
+        /* Port Items in Sidebar */
+        .port-list { padding: 5px; }
+        .port-item {
+            padding: 4px 8px;
+            margin-bottom: 2px;
+            font-size: 11px;
+            border: 1px solid transparent;
+            cursor: pointer;
+        }
+        .port-item:hover { background: #eee; border-color: #ddd; }
+        .port-item.selected { background: #3399ff; color: white; border-color: #0078d7; }
+        .port-item.connected::before { content: "● "; color: #28a745; }
+        .port-item.disconnected::before { content: "○ "; color: #ccc; }
+        .port-item.error::before { content: "× "; color: #dc3545; }
+        .port-item.error { color: #dc3545; }
+        
+        .error-msg { font-size: 9px; display: block; margin-top: 2px; font-style: italic; }
+        
+        @keyframes flash-green {
+            0% { background-color: #d4edda; }
+            100% { background-color: transparent; }
+        }
+        .activity-flash { animation: flash-green 0.5s ease-out; }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            background: #f0f0f0;
+            border: 1px solid #888;
+            box-shadow: 5px 5px 15px rgba(0,0,0,0.3);
+            width: 400px;
+            padding: 15px;
+            font-size: 12px;
+        }
+
+        .modal-header {
+            font-weight: bold;
+            margin-bottom: 15px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #ccc;
+        }
+
+        .modal-body {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .field-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .field-group label { font-weight: 500; }
+        .field-group input { padding: 4px; border: 1px solid #aaa; font-family: monospace; }
+
+        .format-selector {
+            display: flex;
+            gap: 10px;
+            padding: 10px 0;
+            border-top: 1px solid #ddd;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .modal-footer {
+            margin-top: 15px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .modal-btn {
+            padding: 4px 15px;
+            min-width: 70px;
+            background: #e1e1e1;
+            border: 1px solid #999;
+            cursor: pointer;
+        }
+        .modal-btn:hover { background: #d0d0d0; }
+        .modal-btn.primary { background: #003366; color: white; border-color: #001133; }
+
+    </style>
+</head>
+<body>
+    <!-- Edit Sequence Modal -->
+    <div id="editModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">Edit Sequence</div>
+            <div class="modal-body">
+                <div class="field-group">
+                    <label>Name:</label>
+                    <input type="text" id="seqName" value="New Sequence">
+                </div>
+                <div class="field-group">
+                    <label>Sequence:</label>
+                    <input type="text" id="seqData" placeholder="Enter sequence data...">
+                </div>
+                <div class="format-selector">
+                    <label><input type="radio" name="format" value="ASCII" checked> ASCII</label>
+                    <label><input type="radio" name="format" value="HEX"> Hex</label>
+                    <label><input type="radio" name="format" value="DEC"> Decimal</label>
+                    <label><input type="radio" name="format" value="BIN"> Binary</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn primary" onclick="saveSequence()">OK</button>
+                <button class="modal-btn" onclick="closeModal()">Cancel</button>
+                <button class="modal-btn" onclick="applySequence()">Apply</button>
+            </div>
+        </div>
+    </div>
+    <div class="toolbar">
+        <h1>Docklight <span style="font-weight: normal; font-size: 11px; opacity: 0.7;">V2.0-Like POC</span></h1>
+        <button class="tool-btn" onclick="clearTerminal()">Clear Monitor</button>
+        <button class="tool-btn" onclick="toggleAutoConnect()">Auto-Connect: <span id="autoConnectStatus" style="color:green; font-weight:bold;">ON</span></button>
+        <div style="flex:1"></div>
+        <div id="connectionIndicator" style="font-size:11px; color:#555;">Ready</div>
+    </div>
+
+    <div class="workspace">
+        <!-- Project/Sequences Sidebar -->
+        <div class="project-panel">
+            <div style="display: flex; justify-content: space-between; align-items: center;" class="panel-header">
+                Send Sequences
+                <button class="tool-btn" style="padding: 0 5px; height: 18px; font-size: 10px;" onclick="openAddModal()">Add</button>
+            </div>
+            <div class="sequence-grid-header">
+                <div style="text-align: center;">Send</div>
+                <div>Name</div>
+                <div>Sequence</div>
+            </div>
+            <div id="sequencesList" class="sequences-list">
+                <!-- Dynamic sequences here -->
+            </div>
+            <div style="margin-top: 15px;" class="panel-header">Available Ports</div>
+            <div id="ports" class="port-list"></div>
+        </div>
+
+        <!-- Main Monitor -->
+        <div class="communication-window">
+            <div class="panel-header">Communication Window</div>
+            <div id="data" class="terminal"></div>
+            
+            <div class="command-bar">
+                <input type="text" id="message" class="command-input" placeholder="Type data or hex (e.g. 01 02 FF)...">
+                <button id="sendBtn" class="tool-btn" style="padding: 6px 20px; background: #003366; color:white; border-color: #002244;">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <div>
+            Port: <span id="selectedPortText" style="font-weight:bold;">None</span> | 
+            Status: <span id="statusText" class="status-disconnected">Disconnected</span>
+        </div>
+        <div>
+            9600 bps, 8-N-1 | CAN-ASCII Mode
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let selectedPort = null;
+        let sequences = [];
+        let editingIndex = -1;
+
+        function renderSequences() {
+            const list = document.getElementById('sequencesList');
+            list.innerHTML = '';
+            sequences.forEach((s, i) => {
+                const div = document.createElement('div');
+                div.className = 'sequence-item';
+                
+                // Determine if send button should be disabled
+                const el = selectedPort ? document.getElementById(`port-${selectedPort}`) : null;
+                const isConnected = el && el.classList.contains('connected');
+                const disabled = !isConnected ? 'disabled' : '';
+                const opacity = !isConnected ? '0.5' : '1';
+
+                div.style.opacity = opacity;
+                div.innerHTML = `
+                    <div class="seq-col">
+                        <button class="seq-send-btn" onclick="event.stopPropagation(); sendSequence(sequences[${i}])" ${disabled} title="Send Now">▶</button>
+                    </div>
+                    <div class="seq-col sequence-name" onclick="openEditModal(${i})" style="cursor: pointer;">${s.name}</div>
+                    <div class="seq-col sequence-data" onclick="openEditModal(${i})" style="cursor: pointer; font-family: monospace;">${s.data}</div>
+                `;
+                list.appendChild(div);
+            });
+            updateGlobalUI();
+        }
+
+        // Modal Functions
+        function openAddModal() {
+            editingIndex = -1;
+            document.getElementById('seqName').value = "New Sequence";
+            document.getElementById('seqData').value = "";
+            document.querySelector('input[name="format"][value="ASCII"]').checked = true;
+            document.getElementById('editModal').style.display = 'flex';
+        }
+
+        function openEditModal(index) {
+            editingIndex = index;
+            const s = sequences[index];
+            document.getElementById('seqName').value = s.name;
+            document.getElementById('seqData').value = s.data;
+            document.querySelector(`input[name="format"][value="${s.format}"]`).checked = true;
+            document.getElementById('editModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('editModal').style.display = 'none';
+        }
+
+        function saveSequence() {
+            const name = document.getElementById('seqName').value;
+            const data = document.getElementById('seqData').value;
+            const format = document.querySelector('input[name="format"]:checked').value;
+            
+            const seq = { name, data, format };
+            if (editingIndex === -1) sequences.push(seq);
+            else sequences[editingIndex] = seq;
+            
+            renderSequences();
+            closeModal();
+        }
+
+        function applySequence() {
+            const data = document.getElementById('seqData').value;
+            const format = document.querySelector('input[name="format"]:checked').value;
+            if (selectedPort) {
+                const processed = convertToRaw(data, format);
+                socket.emit('send_data', { port: selectedPort, message: processed });
+            }
+        }
+
+        function convertToRaw(data, format) {
+            if (format === 'ASCII') return data;
+            if (format === 'HEX') return data.replace(/[^0-9A-Fa-f]/g, ''); // Handled by backend hex logic
+            if (format === 'DEC') {
+                return data.split(/[\s,]+/).map(d => parseInt(d).toString(16).padStart(2, '0')).join(' ');
+            }
+            if (format === 'BIN') {
+                return data.split(/[\s,]+/).map(b => parseInt(b, 2).toString(16).padStart(2, '0')).join(' ');
+            }
+            return data;
+        }
+
+        function sendSequence(s) {
+            if (!selectedPort) return;
+            const el = document.getElementById(`port-${selectedPort}`);
+            if (!el || !el.classList.contains('connected')) return;
+            
+            const processed = convertToRaw(s.data, s.format);
+            socket.emit('send_data', { port: selectedPort, message: processed });
+        }
+
+        function addLog(direction, port, data) {
+            const dataDiv = document.getElementById('data');
+            const timestamp = new Date().toLocaleTimeString('en-GB', { hour12: false }) + "." + String(new Date().getMilliseconds()).padStart(3, '0');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            
+            const dirClass = direction === 'RX' ? 'rx' : 'tx';
+            const dirArrow = direction === 'RX' ? '<<' : '>>';
+            
+            entry.innerHTML = `<span class="timestamp">${timestamp}</span><span class="direction ${dirClass}">${dirArrow}</span><span class="msg">[${port}] ${data}</span>`;
+            dataDiv.appendChild(entry);
+            dataDiv.scrollTop = dataDiv.scrollHeight;
+        }
+
+        // Initialize sequences
+        renderSequences();
+
+        // Socket event listeners
+        socket.on('available_ports', (ports) => {
+            document.getElementById('ports').innerHTML = '';
+            ports.forEach(p => addPortUI(p));
+        });
+
+        socket.on('port_added', (p) => addPortUI(p));
+        socket.on('port_removed', (p) => {
+            const el = document.getElementById(`port-${p.port}`);
+            if (el) el.remove();
+            if (selectedPort === p.port) {
+                selectedPort = null;
+                updateGlobalUI();
+            }
+        });
+
+        socket.on('connection_status', (status) => {
+            const el = document.getElementById(`port-${status.port}`);
+            if (el) {
+                el.className = `port-item ${status.status} ${selectedPort === status.port ? 'selected' : ''}`;
+                
+                // Remove any existing error message
+                const oldErr = el.querySelector('.error-msg');
+                if (oldErr) oldErr.remove();
+
+                // If error, show the message
+                if (status.status === 'error' && status.error) {
+                    const errSpan = document.createElement('span');
+                    errSpan.className = 'error-msg';
+                    errSpan.textContent = status.error;
+                    el.appendChild(errSpan);
+                }
+            }
+            
+            if (!selectedPort && status.status === 'connected') selectPort(status.port);
+            updateGlobalUI();
+        });
+
+        socket.on('data_received', (data) => {
+            addLog('RX', data.port, data.data);
+            flashPort(data.port);
+        });
+
+        socket.on('send_response', (res) => {
+            if (res.success) {
+                addLog('TX', res.port, res.hex || "");
+                flashPort(res.port);
+            }
+        });
+
+        function flashPort(port) {
+            const el = document.getElementById(`port-${port}`);
+            if (el) {
+                el.classList.remove('activity-flash');
+                void el.offsetWidth; // Trigger reflow
+                el.classList.add('activity-flash');
+            }
+        }
+
+        function addPortUI(p) {
+            if (document.getElementById(`port-${p.port}`)) return;
+            const div = document.createElement('div');
+            div.id = `port-${p.port}`;
+            div.className = 'port-item disconnected';
+            
+            const vidPid = (p.vendorId && p.productId) ? ` (VID:${p.vendorId}, PID:${p.productId})` : '';
+            const manufacturer = p.manufacturer || 'Unknown';
+            const serial = p.serialNumber ? `<br/><span style="font-size: 8px; opacity:0.5">SN: ${p.serialNumber}</span>` : '';
+
+            div.innerHTML = `<strong>${p.port}</strong> <span style="opacity:0.6; font-size: 9px;">${manufacturer}${vidPid}</span>${serial}`;
+            div.onclick = () => selectPort(p.port);
+            document.getElementById('ports').appendChild(div);
+        }
+
+        function selectPort(port) {
+            if (selectedPort) {
+                const old = document.getElementById(`port-${selectedPort}`);
+                if (old) old.classList.remove('selected');
+            }
+            selectedPort = port;
+            const current = document.getElementById(`port-${selectedPort}`);
+            if (current) current.classList.add('selected');
+            updateGlobalUI();
+        }
+
+        function updateGlobalUI() {
+            const statusText = document.getElementById('statusText');
+            const portText = document.getElementById('selectedPortText');
+            const indicator = document.getElementById('connectionIndicator');
+            const sendBtn = document.getElementById('sendBtn');
+            const sequences = document.querySelectorAll('.sequence-item');
+            
+            if (selectedPort) {
+                portText.textContent = selectedPort;
+                const el = document.getElementById(`port-${selectedPort}`);
+                const isConnected = el && el.classList.contains('connected');
+                
+                if (isConnected) {
+                    statusText.textContent = 'Connected';
+                    statusText.style.color = '#28a745';
+                    indicator.textContent = `Connected to ${selectedPort}`;
+                    sendBtn.disabled = false;
+                    sendBtn.style.opacity = "1";
+                    sequences.forEach(s => s.style.opacity = "1");
+                } else {
+                    statusText.textContent = 'Disconnected';
+                    statusText.style.color = '#dc3545';
+                    indicator.textContent = `Selected: ${selectedPort} (NOT CONNECTED)`;
+                    sendBtn.disabled = true;
+                    sendBtn.style.opacity = "0.5";
+                    sequences.forEach(s => s.style.opacity = "0.5");
+                }
+            } else {
+                portText.textContent = 'None';
+                statusText.textContent = 'Disconnected';
+                indicator.textContent = 'Ready';
+                sendBtn.disabled = true;
+                sendBtn.style.opacity = "0.5";
+                sequences.forEach(s => s.style.opacity = "0.5");
+            }
+        }
+
+        function sendSequence(data) {
+            if (!selectedPort) return;
+            const el = document.getElementById(`port-${selectedPort}`);
+            if (!el || !el.classList.contains('connected')) return;
+            
+            socket.emit('send_data', { port: selectedPort, message: data });
+        }
+
+        function clearTerminal() { document.getElementById('data').innerHTML = ''; }
+        function toggleAutoConnect() { /* POC Logic - always on */ }
+
+        document.getElementById('sendBtn').onclick = () => {
+            const msg = document.getElementById('message').value;
+            if (msg && selectedPort) {
+                socket.emit('send_data', { port: selectedPort, message: msg });
+                document.getElementById('message').value = '';
+            }
+        };
+
+        document.getElementById('message').onkeypress = (e) => {
+            if (e.key === 'Enter') document.getElementById('sendBtn').click();
+        };
+
+    </script>
+</body>
+</body>
+</html>
