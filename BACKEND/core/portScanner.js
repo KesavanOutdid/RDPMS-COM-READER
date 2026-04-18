@@ -1,51 +1,62 @@
 const { SerialPort } = require('serialport');
-const config = require('../config/default');
-const { connectToPort } = require('./portManager');
+const { POLL_INTERVAL } = require('../config/default');
 
-let knownPorts = [];
+class PortScanner {
+  constructor(io) {
+    this.io        = io;
+    this.knownPorts = [];     // last known port list
+    this.timer     = null;
+    this.onAdded   = null;    // callback when new port appears
+    this.onRemoved = null;    // callback when port disappears
+  }
 
-async function pollPorts(io, activeConnections) {
-  try {
-    const currentPorts = await SerialPort.list();
-    const currentPaths = currentPorts.map(p => p.path);
-    const knownPaths = knownPorts.map(p => p.path);
+  start() {
+    console.log(`🔍 Port scanner started — polling every ${POLL_INTERVAL}ms`);
+    this.poll();                              // run immediately on start
+    this.timer = setInterval(() => this.poll(), POLL_INTERVAL);
+  }
 
-    const added = currentPorts.filter(p => !knownPaths.includes(p.path));
-    const removed = knownPorts.filter(p => !currentPaths.includes(p.path));
+  stop() {
+    if (this.timer) clearInterval(this.timer);
+  }
 
-    for (const p of added) {
-      console.log(`🔌 Port detected: ${p.path}`);
-      io.emit('port_added', {
-        port: p.path,
-        manufacturer: p.manufacturer || 'Unknown Device',
-        serialNumber: p.serialNumber || '',
-        vendorId: p.vendorId || '',
-        productId: p.productId || '',
+  async poll() {
+    try {
+      const currentPorts = await SerialPort.list();
+      const currentPaths = currentPorts.map(p => p.path);
+      const knownPaths   = this.knownPorts.map(p => p.path);
+
+      // ── New ports appeared (USB plugged in) ──
+      const added = currentPorts.filter(p => !knownPaths.includes(p.path));
+      added.forEach(portInfo => {
+        console.log(`\n🔌 USB device detected: ${portInfo.path} (${portInfo.manufacturer || 'Unknown'})`);
+        this.io.emit('port_detected', {
+          port:         portInfo.path,
+          manufacturer: portInfo.manufacturer || 'Unknown Device',
+          serialNumber: portInfo.serialNumber || '',
+          vendorId:     portInfo.vendorId || '',
+          productId:    portInfo.productId || '',
+        });
+        if (this.onAdded) this.onAdded(portInfo);
       });
 
-      // Auto-connect to newly detected port
-      console.log(`🔄 Auto-connecting to ${p.path}...`);
-      connectToPort(p.path, io);
-    }
+      // ── Ports disappeared (USB unplugged) ──
+      const removed = this.knownPorts.filter(p => !currentPaths.includes(p.path));
+      removed.forEach(portInfo => {
+        console.log(`\n🔴 USB device removed: ${portInfo.path}`);
+        this.io.emit('port_removed', { port: portInfo.path });
+        if (this.onRemoved) this.onRemoved(portInfo);
+      });
 
-    for (const p of removed) {
-      console.log(`🔴 Port removed: ${p.path}`);
-      if (activeConnections[p.path]) {
-        try { activeConnections[p.path].serialPort.close(); } catch (_) {}
-        delete activeConnections[p.path];
-      }
-      io.emit('port_removed', { port: p.path });
-      io.emit('connection_status', { port: p.path, status: 'disconnected', reason: 'Device unplugged' });
+      this.knownPorts = currentPorts;
+    } catch (err) {
+      console.error('Scanner poll error:', err.message);
     }
+  }
 
-    knownPorts = currentPorts;
-  } catch (error) {
-    console.error('Error polling ports:', error);
+  async listPorts() {
+    return await SerialPort.list();
   }
 }
 
-function startPolling(io, activeConnections) {
-  setInterval(() => pollPorts(io, activeConnections), config.pollInterval);
-}
-
-module.exports = { startPolling, pollPorts };
+module.exports = PortScanner;
