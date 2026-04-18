@@ -90,8 +90,12 @@ The server listens on port `3000` by default.
 
 - `connect_port`
   - Payload:
-    - `port` — string
-
+    - `port` — string    - `baudRate` (number, default 0x08) — e.g. 0x08 for 500 kbps
+    - `channel` (number, default 0) — 0 for Channel 1, 1 for Channel 2
+    - `mode` (number, default 0) — 0=Normal, 1=Loopback, 2=Silent
+    - `isFD` (boolean, default false) — true for CAN FD
+    - `brs` (boolean, default false) — Bit Rate Switching
+    - `nonISO` (boolean, default false) — Non-ISO CAN FD
 - `disconnect_port`
   - Payload:
     - `port` — string
@@ -124,7 +128,17 @@ socket.on('send_response', (res) => {
   console.log('send_response', res);
 });
 
-socket.emit('connect_port', { port: 'COM3' });
+// Connect with CAN settings
+socket.emit('connect_port', {
+  port: 'COM3',
+  baudRate: 0x08,   // 500 kbps
+  channel: 0,       // Channel 1
+  mode: 0,          // Normal
+  isFD: false,      // Classic CAN
+  brs: false,
+  nonISO: false
+});
+
 socket.emit('disconnect_port', { port: 'COM3' });
 socket.emit('send_data', { port: 'COM3', message: 'AA BB CC DD' });
 ```

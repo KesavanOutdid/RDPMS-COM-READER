@@ -26,39 +26,7 @@ app.use('/api', apiRoutes(canManager, portScanner));
 // AUTO-CONNECT: When USB device detected, automatically
 // send CONNECT frame (0xA0) to initiate handshake
 // ─────────────────────────────────────────────────────
-portScanner.onAdded = (portInfo) => {
-  console.log(`\n📍 Auto-connecting to ${portInfo.path}...`);
-  
-  // Wait 500ms for device to settle
-  setTimeout(async () => {
-    try {
-      const result = await canManager.connect(portInfo.path, {
-        channel:   0x00,        // Channel 1
-        baudRate:  0x08,        // 500 kbps (default)
-        mode:      0x00,        // Normal mode
-        isFD:      false,       // Classic CAN
-        brs:       false,
-        nonISO:    false,
-      });
-      
-      if (result.success) {
-        console.log(`✅ Auto-connected to ${portInfo.path} → ${result.canType}`);
-      } else {
-        console.error(`❌ Auto-connect failed: ${result.error}`);
-      }
-    } catch (err) {
-      console.error(`❌ Auto-connect error: ${err.message}`);
-    }
-  }, 500);
-};
-
-// Auto-disconnect when device unplugged
-portScanner.onRemoved = (portInfo) => {
-  console.log(`\n🔌 Device unplugged: ${portInfo.path}`);
-  canManager.disconnect(portInfo.path).catch(err => {
-    console.error(`Disconnect error: ${err.message}`);
-  });
-};
+// REMOVED: Auto-connect now handled by frontend via socket events
 
 // Start port scanner
 portScanner.start();

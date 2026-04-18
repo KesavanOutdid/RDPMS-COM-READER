@@ -23,10 +23,44 @@ async function setupSocketEvents(io) {
     // Send current active connections to new client
     socket.emit('initial_ports', getActiveConnections());
 
-    socket.on('connect_port', (data) => {
-      const { port } = data;
-      const result = connectToPort(port, io);
-      socket.emit('connect_response', { port, ...result });
+    // ────────────────────────────────────────
+    // LISTEN: Manual connect request from UI with CAN settings
+    // ────────────────────────────────────────
+    socket.on('connect_port', async (data) => {
+      const { port, baudRate = 0x08, channel = 0, mode = 0, isFD = false, brs = false, nonISO = false } = data;
+      console.log(`\n🔗 Connect request: ${port} (Baud:${baudRate}, Ch:${channel}, Mode:${mode})`);
+
+      try {
+        const result = await canManager.connect(port, {
+          channel,
+          baudRate,
+          mode,
+          isFD,
+          brs,
+          nonISO
+        });
+
+        if (result.success) {
+          socket.emit('connect_response', {
+            success: true,
+            port,
+            message: result.status,
+            canType: result.canType
+          });
+        } else {
+          socket.emit('connect_response', {
+            success: false,
+            port,
+            error: result.error
+          });
+        }
+      } catch (err) {
+        socket.emit('connect_response', {
+          success: false,
+          port,
+          error: err.message
+        });
+      }
     });
 
     socket.on('disconnect_port', (data) => {
