@@ -341,6 +341,65 @@ class CANManager {
   }
 
   // ─────────────────────────────────────────────
+  // REMOTE HARDWARE MODE SUPPORT
+  // ─────────────────────────────────────────────
+  
+  // Build binary frame for frontend to write to its local USB
+  buildBinaryFrame({ canId, data = [], channel = 0, isExtended = false }) {
+    return buildTxFrame({ canId, data, channel, isExtended });
+  }
+
+  // Parse raw bytes sent from frontend (Web Serial API)
+  parseRemoteBytes(sessionId, buffer) {
+    if (!this.remoteBuffers) this.remoteBuffers = {};
+    if (!this.remoteBuffers[sessionId]) this.remoteBuffers[sessionId] = [];
+
+    const rawBuffer = this.remoteBuffers[sessionId];
+    for (const byte of buffer) rawBuffer.push(byte);
+
+    const parsedFrames = [];
+    while (rawBuffer.length > 0) {
+      const first = rawBuffer[0];
+      
+      // ── CONNECT ACK ──
+      if (first === 0xA1 && rawBuffer.length >= 5) {
+        const frameBuf = Buffer.from(rawBuffer.splice(0, 5));
+        parsedFrames.push(identifyFrame(frameBuf));
+        continue;
+      }
+
+      // ── HEARTBEAT ACK ──
+      if (first === 0xD1 && rawBuffer.length >= 2) {
+        const frameBuf = Buffer.from(rawBuffer.splice(0, 2));
+        parsedFrames.push(identifyFrame(frameBuf));
+        continue;
+      }
+
+      // ── RX FRAME ──
+      if (first === 0xF1 && rawBuffer.length > 1 && rawBuffer[1] === 0x00) {
+        if (rawBuffer.length < 11) break;
+        const dlcByte = rawBuffer[10];
+        const dlc = dlcByte & 0x0F;
+        const { DLC_MAP } = require('./config/default');
+        const dataLen = DLC_MAP[dlc] !== undefined ? DLC_MAP[dlc] : dlc;
+        const totalLen = 11 + dataLen;
+
+        if (rawBuffer.length < totalLen) break;
+        const frameBuf = Buffer.from(rawBuffer.splice(0, totalLen));
+        const parsed = identifyFrame(frameBuf);
+        if (parsed) {
+          parsed.direction = 'RX';
+          parsedFrames.push(parsed);
+        }
+        continue;
+      }
+
+      rawBuffer.shift(); // skip unknown bytes
+    }
+    return parsedFrames;
+  }
+
+  // ─────────────────────────────────────────────
   // CLEANUP timers and state
   // ─────────────────────────────────────────────
   _cleanup(portPath) {

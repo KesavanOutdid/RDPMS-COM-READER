@@ -62,6 +62,26 @@ async function setupSocketEvents(io, canManager) {
       }
     });
 
+    // ── REMOTE HARDWARE MODE (Frontend has the USB) ──
+    
+    // 1. Frontend sends raw bytes from its local Web Serial to Backend for parsing
+    socket.on('remote_raw_stream', (data) => {
+      const { sessionId, rawBytes } = data;
+      // Use frameParser to identify frames and emit 'can_rx' back to frontend
+      const buffer = Buffer.from(rawBytes);
+      const parsed = canManager.parseRemoteBytes(sessionId, buffer);
+      if (parsed && parsed.length > 0) {
+        parsed.forEach(frame => socket.emit('can_rx', { port: 'REMOTE', frame }));
+      }
+    });
+
+    // 2. Frontend asks Backend to build a binary TX frame to write to its local USB
+    socket.on('request_tx_binary', (data) => {
+      const { canId, frameData, channel, isExtended } = data;
+      const binaryFrame = canManager.buildBinaryFrame({ canId, data: frameData, channel, isExtended });
+      socket.emit('tx_binary_response', { binary: binaryFrame.toString('hex') });
+    });
+
     socket.on('disconnect', () => {
       console.log('🌐 Frontend disconnected:', socket.id);
     });
