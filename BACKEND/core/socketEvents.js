@@ -1,82 +1,69 @@
-const { connectToPort, disconnectFromPort, sendData, getActiveConnections } = require('./portManager');
+// ─────────────────────────────────────────────────────────────
+// core/socketEvents.js
+// All Socket.io event listeners — frontend talks to backend here
+// ─────────────────────────────────────────────────────────────
+
 const { SerialPort } = require('serialport');
 
-async function setupSocketEvents(io) {
+async function setupSocketEvents(io, canManager) {
   io.on('connection', async (socket) => {
-    console.log('Client connected:', socket.id);
+    console.log('🌐 Frontend connected:', socket.id);
 
-    // Send all available ports to new client
+    // Send available ports to new browser client immediately
     try {
       const allPorts = await SerialPort.list();
       socket.emit('available_ports', allPorts.map(p => ({
-        port: p.path,
-        manufacturer: p.manufacturer || 'Unknown Device',
-        serialNumber: p.serialNumber || '',
-        vendorId: p.vendorId || '',
-        productId: p.productId || '',
+        port:         p.path,
+        manufacturer: p.manufacturer  || 'Unknown Device',
+        serialNumber: p.serialNumber  || '',
+        vendorId:     p.vendorId      || '',
+        productId:    p.productId     || '',
       })));
-      console.log(`Sent ${allPorts.length} available ports to client ${socket.id}`);
     } catch (err) {
       console.error('Error listing ports:', err);
     }
 
-    // Send current active connections to new client
-    socket.emit('initial_ports', getActiveConnections());
+    // Send current active CAN connections
+    socket.emit('status_update', { connections: canManager.getStatus() });
 
-    // ────────────────────────────────────────
-    // LISTEN: Manual connect request from UI with CAN settings
-    // ────────────────────────────────────────
+    // ── CONNECT to CAN port ──
     socket.on('connect_port', async (data) => {
       const { port, baudRate = 0x08, channel = 0, mode = 0, isFD = false, brs = false, nonISO = false } = data;
-      console.log(`\n🔗 Connect request: ${port} (Baud:${baudRate}, Ch:${channel}, Mode:${mode})`);
-
+      console.log(`\n🔗 Connect request: ${port}`);
       try {
-        const result = await canManager.connect(port, {
-          channel,
-          baudRate,
-          mode,
-          isFD,
-          brs,
-          nonISO
-        });
-
-        if (result.success) {
-          socket.emit('connect_response', {
-            success: true,
-            port,
-            message: result.status,
-            canType: result.canType
-          });
-        } else {
-          socket.emit('connect_response', {
-            success: false,
-            port,
-            error: result.error
-          });
-        }
+        const result = await canManager.connect(port, { channel, baudRate, mode, isFD, brs, nonISO });
+        socket.emit('connect_response', { success: true, port, message: result.status, canType: result.canType });
       } catch (err) {
-        socket.emit('connect_response', {
-          success: false,
-          port,
-          error: err.message
-        });
+        socket.emit('connect_response', { success: false, port, error: err.error || err.message || 'Connect failed' });
       }
     });
 
-    socket.on('disconnect_port', (data) => {
+    // ── DISCONNECT from CAN port ──
+    socket.on('disconnect_port', async (data) => {
       const { port } = data;
-      const result = disconnectFromPort(port);
-      socket.emit('disconnect_response', { port, ...result });
+      try {
+        const result = await canManager.disconnect(port);
+        socket.emit('disconnect_response', { success: true, port, ...result });
+      } catch (err) {
+        socket.emit('disconnect_response', { success: false, port, error: err.message });
+      }
     });
 
-    socket.on('send_data', (data) => {
-      const { port, message } = data;
-      const result = sendData(port, message);
-      socket.emit('send_response', { port, ...result });
+    // ── SEND CAN frame ──
+    socket.on('send_frame', async (data) => {
+      let { port, canId, data: frameData = [], channel = 0, isExtended = false } = data;
+      if (typeof canId === 'string') canId = parseInt(canId, canId.startsWith('0x') ? 16 : 10);
+      frameData = frameData.map(b => typeof b === 'string' ? parseInt(b, 16) : b);
+      try {
+        const result = await canManager.sendFrame(port, { canId, data: frameData, channel, isExtended });
+        socket.emit('send_response', { success: true, port, frame: result.frame });
+      } catch (err) {
+        socket.emit('send_response', { success: false, port, error: err.error || err.message });
+      }
     });
 
     socket.on('disconnect', () => {
-      console.log('Client disconnected:', socket.id);
+      console.log('🌐 Frontend disconnected:', socket.id);
     });
   });
 }

@@ -3,47 +3,50 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 
-const PortScanner = require('./core/portScanner');
-const CANManager  = require('./canManager');
-const apiRoutes    = require('./routes/api');
+const PortScanner            = require('./core/portScanner');
+const CANManager             = require('./canManager');
+const { setupSocketEvents }  = require('./core/socketEvents');  // ← FIXED: now imported
+const apiRoutes              = require('./routes/api');
 
-const app = express();
+const app        = express();
 const httpServer = http.createServer(app);
-const io = new Server(httpServer, { cors: { origin: '*' } });
+const io         = new Server(httpServer, { cors: { origin: '*' } });
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static('.')); // Serve static files like index.html
+app.use(express.static('.'));
 
 // Initialize managers
 const portScanner = new PortScanner(io);
 const canManager  = new CANManager(io);
 
-// Use API routes
+// REST API routes
 app.use('/api', apiRoutes(canManager, portScanner));
 
-// ─────────────────────────────────────────────────────
-// AUTO-CONNECT: When USB device detected, automatically
-// send CONNECT frame (0xA0) to initiate handshake
-// ─────────────────────────────────────────────────────
-// REMOVED: Auto-connect now handled by frontend via socket events
+// Socket.io events — FIXED: now called with canManager passed in
+setupSocketEvents(io, canManager);
 
-// Start port scanner
+// Port scanner: emit events when USB device plugged/unplugged
 portScanner.start();
 
 const { SERVER_PORT } = require('./config/default');
 httpServer.listen(SERVER_PORT, () => {
-  console.log(`\n🚀 CAN Backend: http://localhost:${SERVER_PORT}`);
-  console.log(`\nSocket.io Real-Time Events:`);
+  console.log(`\n🚀 CAN Backend running: http://localhost:${SERVER_PORT}`);
+  console.log(`\nSocket.io Events (Backend → Frontend):`);
+  console.log(`  available_ports    → List of USB ports on connect`);
   console.log(`  port_detected      → USB device plugged in`);
   console.log(`  port_removed       → USB device unplugged`);
-  console.log(`  device_connected   → CAN device connected`);
-  console.log(`  device_disconnected→ CAN device disconnected`);
-  console.log(`  can_rx             → CAN frame received`);
-  console.log(`  can_tx             → CAN frame sent`);
-  console.log(`  heartbeat_sent     → Heartbeat sent`);
-  console.log(`  heartbeat_ack      → Heartbeat acknowledged`);
-  console.log(`  heartbeat_miss     → Heartbeat missed`);
-  console.log(`  heartbeat_timeout  → Heartbeat timeout (disconnect)`);
-  console.log(`  can_error          → CAN error\n`);
+  console.log(`  device_connected   → CAN ACK received (A1 00)`);
+  console.log(`  device_disconnected→ CAN port closed`);
+  console.log(`  can_rx             → CAN frame received (F1 00)`);
+  console.log(`  can_tx             → CAN frame sent (F1 01)`);
+  console.log(`  heartbeat_sent     → D0 sent`);
+  console.log(`  heartbeat_ack      → D1 received`);
+  console.log(`  heartbeat_miss     → No D1 reply`);
+  console.log(`  heartbeat_timeout  → 3 misses — disconnected`);
+  console.log(`  can_error          → Device error\n`);
+  console.log(`Socket.io Events (Frontend → Backend):`);
+  console.log(`  connect_port       → Connect to a CAN port`);
+  console.log(`  disconnect_port    → Disconnect from a CAN port`);
+  console.log(`  send_frame         → Send a CAN TX frame\n`);
 });

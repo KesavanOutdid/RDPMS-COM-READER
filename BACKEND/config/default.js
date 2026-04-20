@@ -1,5 +1,5 @@
 module.exports = {
-  SERVER_PORT:        3000,
+  SERVER_PORT:        3001,
   POLL_INTERVAL:      1500,   // scan for new USB devices every 1.5s
   DEFAULT_BAUD:       0x08,   // 500 kbps
   HEARTBEAT_INTERVAL: 1000,   // send D0 every 1 second
