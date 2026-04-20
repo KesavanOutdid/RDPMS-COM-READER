@@ -17,17 +17,17 @@ app.use(express.json());
 app.use(express.static('.'));
 
 // Initialize managers
-const portScanner = new PortScanner(io);
+// const portScanner = new PortScanner(io); // Disabled for Cloud mode
 const canManager  = new CANManager(io);
 
 // REST API routes
-app.use('/api', apiRoutes(canManager, portScanner));
+app.use('/api', apiRoutes(canManager));
 
-// Socket.io events — FIXED: now called with canManager passed in
+// Socket.io events
 setupSocketEvents(io, canManager);
 
 // Port scanner: emit events when USB device plugged/unplugged
-portScanner.start();
+// portScanner.start(); // Disabled for Cloud mode
 
 const { SERVER_PORT } = require('./config/default');
 httpServer.listen(SERVER_PORT, () => {

@@ -9,21 +9,7 @@ async function setupSocketEvents(io, canManager) {
   io.on('connection', async (socket) => {
     console.log('🌐 Frontend connected:', socket.id);
 
-    // Send available ports to new browser client immediately
-    try {
-      const allPorts = await SerialPort.list();
-      socket.emit('available_ports', allPorts.map(p => ({
-        port:         p.path,
-        manufacturer: p.manufacturer  || 'Unknown Device',
-        serialNumber: p.serialNumber  || '',
-        vendorId:     p.vendorId      || '',
-        productId:    p.productId     || '',
-      })));
-    } catch (err) {
-      console.error('Error listing ports:', err);
-    }
-
-    // Send current active CAN connections
+    // Send current active CAN connections (if any)
     socket.emit('status_update', { connections: canManager.getStatus() });
 
     // ── CONNECT to CAN port ──

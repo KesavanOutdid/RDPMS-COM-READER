@@ -1,17 +1,18 @@
 const express = require('express');
 const router  = express.Router();
+const { SerialPort } = require('serialport');
 
-module.exports = (canManager, portScanner) => {
+module.exports = (canManager) => {
 
   // ── Health check ──
   router.get('/health', (req, res) => {
-    res.json({ success: true, message: 'CAN Backend running', uptime: process.uptime() });
+    res.json({ success: true, message: 'CAN Cloud Backend running', uptime: process.uptime() });
   });
 
-  // ── List available USB/serial ports ──
+  // ── List available USB/serial ports (Local to server, mostly for debug now) ──
   router.get('/ports', async (req, res) => {
     try {
-      const ports = await portScanner.listPorts();
+      const ports = await SerialPort.list();
       res.json({ success: true, ports });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
