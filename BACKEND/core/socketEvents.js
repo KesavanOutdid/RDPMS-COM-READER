@@ -51,11 +51,11 @@ async function setupSocketEvents(io, canManager) {
 
     // ── SEND CAN frame ──
     socket.on('send_frame', async (data) => {
-      let { port, canId, data: frameData = [], channel = 0, isExtended = false } = data;
+      let { port, canId, data: frameData = [], channel = 0, isExtended = false, isFD = null } = data;
       if (typeof canId === 'string') canId = parseInt(canId, canId.startsWith('0x') ? 16 : 10);
       frameData = frameData.map(b => typeof b === 'string' ? parseInt(b, 16) : b);
       try {
-        const result = await canManager.sendFrame(port, { canId, data: frameData, channel, isExtended });
+        const result = await canManager.sendFrame(port, { canId, data: frameData, channel, isExtended, isFD });
         socket.emit('send_response', { success: true, port, frame: result.frame });
       } catch (err) {
         socket.emit('send_response', { success: false, port, error: err.error || err.message });

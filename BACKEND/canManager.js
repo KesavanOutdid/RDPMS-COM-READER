@@ -161,11 +161,19 @@ class CANManager {
   // ─────────────────────────────────────────────
   // SEND CAN TX FRAME (0xF1 0x01 ...)
   // ─────────────────────────────────────────────
-  sendFrame(portPath, { canId, data = [], channel = 0, isExtended = false }) {
+  sendFrame(portPath, { canId, data = [], channel = 0, isExtended = false, isFD = null }) {
     return new Promise((resolve, reject) => {
       const conn = this.connections[portPath];
       if (!conn || !conn.serialPort.isOpen) {
         return reject({ success: false, error: `${portPath} not connected` });
+      }
+
+      // Auto-detect FD if not provided, based on connection config
+      const frameIsFD = isFD !== null ? isFD : conn.config.isFD;
+
+      // Validation: Classic CAN cannot exceed 8 bytes
+      if (!frameIsFD && data.length > 8) {
+        return reject({ success: false, error: 'Classic CAN supports maximum 8 bytes. Use CAN FD for larger payloads.' });
       }
 
       const frame = buildTxFrame({ canId, data, channel, isExtended });

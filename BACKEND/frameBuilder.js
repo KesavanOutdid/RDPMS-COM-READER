@@ -48,8 +48,15 @@ function buildTxFrame({ canId, data = [], channel = 0, isExtended = false }) {
   const idBuf = Buffer.alloc(4);
   idBuf.writeUInt32LE(idValue >>> 0, 0);
 
-  const dlc = data.length & 0x0F;
-  const dlcChannel = ((channel & 0x0F) << 4) | dlc;  // upper 4 = channel, lower 4 = dlc
+  // DLC Mapping for CAN FD
+  const LENGTH_TO_DLC = {
+    0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
+    12: 9, 16: 10, 20: 11, 24: 12, 32: 13, 48: 14, 64: 15
+  };
+  
+  const dataLen = data.length;
+  const dlc = LENGTH_TO_DLC[dataLen] !== undefined ? LENGTH_TO_DLC[dataLen] : (dataLen > 8 ? 8 : dataLen);
+  const dlcChannel = ((channel & 0x0F) << 4) | (dlc & 0x0F);  // upper 4 = channel, lower 4 = dlc
 
   const dataBuf = Buffer.from(data);
 

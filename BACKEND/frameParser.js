@@ -46,7 +46,7 @@ function parseRxFrame(buf) {
   // CAN ID: 4 bytes little-endian
   const rawId    = buf.readUInt32LE(6);
   const isExtended = (rawId & 0x80000000) !== 0;
-  const canId    = rawId & 0x1FFFFFFF;  // mask out flag bit
+  const canId    = rawId & 0x7FFFFFFF;  // mask out Bit 31 flag bit
 
   // DLC + Channel byte
   const dlcByte  = buf[10];
