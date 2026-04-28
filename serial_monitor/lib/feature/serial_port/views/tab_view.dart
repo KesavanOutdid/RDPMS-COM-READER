@@ -18,10 +18,12 @@ class TabViewWidget extends StatefulWidget {
 
 class _TabViewWidgetState extends State<TabViewWidget> {
   final ScrollController _scrollController = ScrollController();
+  final ScrollController _horizontalScrollController = ScrollController();
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _horizontalScrollController.dispose();
     super.dispose();
   }
 
@@ -68,39 +70,29 @@ class _TabViewWidgetState extends State<TabViewWidget> {
             Expanded(
               child: _GroupPanel(
                 title: 'Communication',
-                trailing: _buildModeTabs(
-                  currentFormat: tab.displayFormat,
-                  onChanged: (format) {
-                    controller.setDisplayFormat(widget.tabIndex, format);
-                  },
-                ),
-                child: _buildMessageArea(tab),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 130,
-              child: _GroupPanel(
-                title: 'Documentation',
-                trailing: Wrap(
-                  spacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
-                      Icons.info_outline,
-                      size: 15,
-                      color: AppTheme.warningColor,
-                    ),
-                    Text(
-                      _documentationTitle(tab),
-                      style: GoogleFonts.openSans(
-                        fontSize: 11,
-                        color: AppTheme.textPrimary,
+                    TextButton.icon(
+                      onPressed: () => controller.clearMessages(widget.tabIndex),
+                      icon: const Icon(Icons.delete_outline, size: 14, color: AppTheme.textSecondary),
+                      label: Text('Clear', style: GoogleFonts.openSans(fontSize: 12, color: AppTheme.textSecondary)),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
+                    ),
+                    const SizedBox(width: 12),
+                    _buildModeTabs(
+                      currentFormat: tab.displayFormat,
+                      onChanged: (format) {
+                        controller.setDisplayFormat(widget.tabIndex, format);
+                      },
                     ),
                   ],
                 ),
-                child: _buildDocumentationArea(tab),
+                child: _buildMessageArea(tab),
               ),
             ),
           ],
@@ -154,39 +146,74 @@ class _TabViewWidgetState extends State<TabViewWidget> {
   Widget _buildMessageArea(SerialTab tab) {
     return Container(
       color: Colors.white,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildTableHeader(),
-          Expanded(
-            child: tab.messages.isEmpty
-                ? Center(
-                    child: Text(
-                      'No communication data yet',
-                      style: GoogleFonts.openSans(
-                        fontSize: 13,
-                        color: AppTheme.textMuted,
-                      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const double minTotalWidth = 1000.0;
+          final double tableWidth = constraints.maxWidth > minTotalWidth
+              ? constraints.maxWidth
+              : minTotalWidth;
+
+          final content = Scrollbar(
+            controller: _horizontalScrollController,
+            thumbVisibility: true,
+            interactive: true,
+            notificationPredicate: (ScrollNotification notification) {
+              return notification.metrics.axis == Axis.horizontal;
+            },
+            child: SingleChildScrollView(
+              controller: _horizontalScrollController,
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: tableWidth,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildTableHeader(),
+                    Expanded(
+                      child: tab.messages.isEmpty
+                          ? Center(
+                              child: Text(
+                                'No communication data yet',
+                                style: GoogleFonts.openSans(
+                                  fontSize: 13,
+                                  color: AppTheme.textMuted,
+                                ),
+                              ),
+                            )
+                          : ListView.builder(
+                              controller: _scrollController,
+                              padding: EdgeInsets.zero,
+                              itemCount: tab.messages.length,
+                              itemBuilder: (context, index) {
+                                return MessageWidget(
+                                  message: tab.messages[index],
+                                  displayFormat: tab.displayFormat,
+                                  index: index + 1,
+                                  isEven: index % 2 == 0,
+                                );
+                              },
+                            ),
                     ),
-                  )
-                : Scrollbar(
-                    controller: _scrollController,
-                    child: ListView.builder(
-                      controller: _scrollController,
-                      padding: EdgeInsets.zero,
-                      itemCount: tab.messages.length,
-                      itemBuilder: (context, index) {
-                        return MessageWidget(
-                          message: tab.messages[index],
-                          displayFormat: tab.displayFormat,
-                          index: index + 1,
-                          isEven: index % 2 == 0,
-                        );
-                      },
-                    ),
-                  ),
-          ),
-        ],
+                  ],
+                ),
+              ),
+            ),
+          );
+
+          if (tab.messages.isEmpty) {
+            return content;
+          }
+
+          return Scrollbar(
+            controller: _scrollController,
+            thumbVisibility: true,
+            interactive: true,
+            notificationPredicate: (ScrollNotification notification) {
+              return notification.metrics.axis == Axis.vertical;
+            },
+            child: content,
+          );
+        },
       ),
     );
   }

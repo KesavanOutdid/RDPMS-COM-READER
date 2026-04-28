@@ -230,6 +230,7 @@ class SerialMessage {
 /// Individual tab data
 class SerialTab {
   String name;
+  String? tabCanId;
   final List<SerialMessage> messages;
   final List<SendSequence> sendSequences;
   bool autoScroll;
@@ -241,6 +242,7 @@ class SerialTab {
 
   SerialTab({
     required this.name,
+    this.tabCanId,
     List<SerialMessage>? messages,
     List<SendSequence>? sendSequences,
     this.autoScroll = true,
@@ -250,15 +252,11 @@ class SerialTab {
     this.pendingInput = '',
     this.selectedSendSequenceIndex = 0,
   }) : messages = messages ?? [],
-       sendSequences = sendSequences ?? [SendSequence(name: 'message 1')];
+       sendSequences = sendSequences ?? [SendSequence(name: tabCanId != null && tabCanId.isNotEmpty ? 'Msg ($tabCanId)' : 'message 1', canIdHex: tabCanId ?? '')];
 
   /// Add a message to this tab
   void addMessage(SerialMessage message) {
     messages.add(message);
-    // Keep max messages
-    if (messages.length > 1000) {
-      messages.removeAt(0);
-    }
   }
 
   /// Clear all messages in this tab

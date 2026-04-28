@@ -39,6 +39,40 @@ class _TabBarWidgetState extends State<TabBarWidget> {
     });
   }
 
+  Future<String?> _showCanIdDialog(BuildContext context) async {
+    String canId = '';
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppTheme.bgCard,
+          title: Text('New Tab CAN ID', style: GoogleFonts.rajdhani(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+          content: TextField(
+            style: GoogleFonts.sourceCodePro(color: AppTheme.textPrimary),
+            decoration: InputDecoration(
+              hintText: 'e.g. 0x123 (Leave empty for all messages)',
+              hintStyle: GoogleFonts.sourceCodePro(color: AppTheme.textMuted),
+              enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: AppTheme.borderColor)),
+              focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: AppTheme.primaryColor)),
+            ),
+            onChanged: (value) => canId = value.trim(),
+            onSubmitted: (_) => Navigator.of(context).pop(canId),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(null),
+              child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(canId),
+              child: const Text('OK', style: TextStyle(color: AppTheme.primaryColor)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<PortController>(
@@ -73,7 +107,12 @@ class _TabBarWidgetState extends State<TabBarWidget> {
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: InkWell(
-                    onTap: controller.addTab,
+                    onTap: () async {
+                      final canId = await _showCanIdDialog(context);
+                      if (canId != null) {
+                        controller.addTab(canId: canId);
+                      }
+                    },
                     borderRadius: BorderRadius.circular(6),
                     child: Container(
                       width: 32,
@@ -144,7 +183,6 @@ class _TabBarWidgetState extends State<TabBarWidget> {
                 width: 80,
                 child: TextField(
                   controller: _editController,
-                  autofocus: true,
                   style: GoogleFonts.rajdhani(
                     fontSize: 13,
                     color: AppTheme.textPrimary,

@@ -171,10 +171,10 @@ class PortController extends ChangeNotifier {
   // ─── TAB MANAGEMENT ───────────────────────────────
 
   /// Add a new tab
-  void addTab() {
+  void addTab({String? canId}) {
     if (_tabs.length >= AppConstants.maxTabs) return;
     final index = _tabs.length + 1;
-    _tabs.add(SerialTab(name: 'Tab $index'));
+    _tabs.add(SerialTab(name: canId != null && canId.isNotEmpty ? 'Tab $index ($canId)' : 'Tab $index', tabCanId: canId));
     _activeTabIndex = _tabs.length - 1;
     _ensureTrailingPlaceholder(_activeTabIndex);
     notifyListeners();
@@ -285,7 +285,7 @@ class PortController extends ChangeNotifier {
   void addSendSequence(int tabIndex) {
     if (tabIndex < 0 || tabIndex >= _tabs.length) return;
     final tab = _tabs[tabIndex];
-    tab.sendSequences.add(SendSequence(name: ''));
+    tab.sendSequences.add(SendSequence(name: tab.tabCanId != null && tab.tabCanId!.isNotEmpty ? 'Msg (${tab.tabCanId})' : '', canIdHex: tab.tabCanId ?? ''));
     tab.selectedSendSequenceIndex = tab.sendSequences.length - 1;
     notifyListeners();
   }
@@ -297,7 +297,7 @@ class PortController extends ChangeNotifier {
 
     tab.sendSequences.removeAt(sequenceIndex);
     if (tab.sendSequences.isEmpty) {
-      tab.sendSequences.add(SendSequence(name: 'message 1'));
+      tab.sendSequences.add(SendSequence(name: tab.tabCanId != null && tab.tabCanId!.isNotEmpty ? 'Msg (${tab.tabCanId})' : 'message 1', canIdHex: tab.tabCanId ?? ''));
     }
     _ensureTrailingPlaceholder(tabIndex);
     if (tab.selectedSendSequenceIndex >= tab.sendSequences.length) {
@@ -307,7 +307,7 @@ class PortController extends ChangeNotifier {
   }
 
   /// Send a saved sequence by row index
-  bool sendSavedSequence(int tabIndex, int sequenceIndex) {
+  Future<bool> sendSavedSequence(int tabIndex, int sequenceIndex) async {
     if (tabIndex < 0 || tabIndex >= _tabs.length) return false;
     final tab = _tabs[tabIndex];
     if (sequenceIndex < 0 || sequenceIndex >= tab.sendSequences.length) {
@@ -329,7 +329,7 @@ class PortController extends ChangeNotifier {
     tab.selectedSendSequenceIndex = sequenceIndex;
 
     if (hasCanId) {
-      return _sendSequenceAsCanFrame(sendSequence);
+      return await _sendSequenceAsCanFrame(sendSequence);
     }
 
     _handleError(
@@ -408,7 +408,7 @@ class PortController extends ChangeNotifier {
     return success;
   }
 
-  bool _sendSequenceAsCanFrame(SendSequence sequence) {
+  Future<bool> _sendSequenceAsCanFrame(SendSequence sequence) async {
     if (!isConnected || activeTab == null) return false;
 
     if (sequence.canFrameType == CanFrameType.remote) {
@@ -418,9 +418,9 @@ class PortController extends ChangeNotifier {
       return false;
     }
 
-    Uint8List bytes;
+    Uint8List baseBytes;
     try {
-      bytes = parseSequenceInput(sequence.sequence, sequence.format);
+      baseBytes = parseSequenceInput(sequence.sequence, sequence.format);
     } catch (error) {
       _handleError('Invalid input format: $error');
       return false;
@@ -432,26 +432,64 @@ class PortController extends ChangeNotifier {
       return false;
     }
 
+    int currentCanId = int.tryParse(sequence.canIdHex.replaceAll('0x', ''), radix: 16) ?? 0;
+    Uint8List currentBytes = Uint8List.fromList(baseBytes);
+
     final channelValue = sequence.channel == 2 ? 1 : 0;
     final isExtended = sequence.canFrameFormat == CanFrameFormat.extended;
     final isFD = _canConfig.canType == CanType.canFd;
 
-    final success = _service.sendCanFrame(
-      canId: normalizedCanId,
-      data: bytes.toList(),
-      channel: channelValue,
-      isExtended: isExtended,
-      isFD: isFD,
-    );
+    final int repeats = sequence.repeatCount > 0 ? sequence.repeatCount : 1;
+    final int delayMs = sequence.sendCycleMs > 0 ? sequence.sendCycleMs : 0;
 
-    if (success) {
-      _totalBytesSent += bytes.length;
-      // We no longer manually add the SerialMessage here.
-      // We will rely on the backend emitting a 'can_tx' event and 
-      // handle it in _handleCanFrameTx to display it properly in the table.
+    bool allSuccess = true;
+
+    for (int i = 0; i < repeats; i++) {
+      if (!isConnected || activeTab == null) {
+        allSuccess = false;
+        break;
+      }
+
+      String canIdStr = '0x${currentCanId.toRadixString(16).toUpperCase()}';
+
+      final success = _service.sendCanFrame(
+        canId: canIdStr,
+        data: currentBytes.toList(),
+        channel: channelValue,
+        isExtended: isExtended,
+        isFD: isFD,
+      );
+
+      if (success) {
+        _totalBytesSent += currentBytes.length;
+      } else {
+        allSuccess = false;
+        break;
+      }
+
+      // Handle Increments
+      if (sequence.idIncrementEnabled) {
+        currentCanId++;
+        // Keep within bounds
+        if (isExtended && currentCanId > 0x1FFFFFFF) currentCanId = 0;
+        if (!isExtended && currentCanId > 0x7FF) currentCanId = 0;
+      }
+
+      if (sequence.dataIncrementEnabled && currentBytes.isNotEmpty) {
+        int index = currentBytes.length - 1;
+        while (index >= 0) {
+          currentBytes[index] = (currentBytes[index] + 1) & 0xFF;
+          if (currentBytes[index] != 0) break; // no carry
+          index--;
+        }
+      }
+
+      if (i < repeats - 1 && delayMs > 0) {
+        await Future.delayed(Duration(milliseconds: delayMs));
+      }
     }
 
-    return success;
+    return allSuccess;
   }
 
   String? _normalizeCanIdHex(String value) {
@@ -488,6 +526,11 @@ class PortController extends ChangeNotifier {
   }
 
   void _handleCanFrameRx(Map<String, dynamic> frame) {
+    // Filter out system control frames from backend
+    if (frame['type'] == 'heartbeat' || frame['type'] == 'connect_ack') {
+      return;
+    }
+
     final rawBytes = _parseDataHex(frame['dataHex']?.toString());
     _totalBytesReceived += rawBytes.length;
 
@@ -511,6 +554,12 @@ class PortController extends ChangeNotifier {
     );
 
     for (final tab in _tabs) {
+      if (tab.tabCanId != null && tab.tabCanId!.isNotEmpty) {
+        final rawCanId = frame['canId']?.toString();
+        if (rawCanId != null && !rawCanId.toLowerCase().contains(tab.tabCanId!.toLowerCase().replaceAll('0x', '').replaceAll(' ', ''))) {
+          continue;
+        }
+      }
       tab.addMessage(message);
     }
     notifyListeners();
@@ -539,6 +588,12 @@ class PortController extends ChangeNotifier {
     );
 
     for (final tab in _tabs) {
+      if (tab.tabCanId != null && tab.tabCanId!.isNotEmpty) {
+        final rawCanId = frame['canId']?.toString();
+        if (rawCanId != null && !rawCanId.toLowerCase().contains(tab.tabCanId!.toLowerCase().replaceAll('0x', '').replaceAll(' ', ''))) {
+          continue;
+        }
+      }
       tab.addMessage(message);
     }
     notifyListeners();
@@ -647,7 +702,7 @@ class PortController extends ChangeNotifier {
     }
 
     if (tab.sendSequences.isEmpty || !tab.sendSequences.last.isPlaceholder) {
-      tab.sendSequences.add(SendSequence(name: ''));
+      tab.sendSequences.add(SendSequence(name: '', canIdHex: tab.tabCanId ?? ''));
     }
   }
 

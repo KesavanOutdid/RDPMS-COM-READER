@@ -3,24 +3,31 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_libserialport/flutter_libserialport.dart' as sp;
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../config/can_config.dart';
 import '../config/models.dart';
 
-/// Frontend bridge for the current CAN backend:
-/// - Socket.io for live events
-/// - REST APIs for commands/connect/send
+/// Distributed Architecture: Flutter handles physical USB natively, but routes all logic to Node backend
 class SerialPortService {
-  static const String defaultBackendUrl = 'http://192.168.0.16:3001';
+  static const String defaultBackendUrl = 'http://192.168.0.24:3001';
 
   io.Socket? _socket;
   String _backendUrl = defaultBackendUrl;
+  
+  // Local native serial variables
+  sp.SerialPort? _port;
+  sp.SerialPortReader? _reader;
+  StreamSubscription? _readerSubscription;
+
   bool _isConnected = false;
   String _connectedPort = '';
   List<String> _availablePorts = const [];
+  
   bool _isInitialized = false;
   Completer<void>? _socketReadyCompleter;
 
+  // Exact same callback API to keep PortController happy
   Function(Uint8List data)? onDataReceived;
   Function(Map<String, dynamic> frame)? onCanFrameRx;
   Function(Map<String, dynamic> frame)? onCanFrameTx;
@@ -32,16 +39,22 @@ class SerialPortService {
   Function(String port, int missCount)? onHeartbeatMiss;
   Function(String port)? onHeartbeatTimeout;
 
+  Timer? _pollingTimer;
+
   bool get isConnected => _isConnected;
   String get portName => _connectedPort;
   List<String> get availablePorts => List.unmodifiable(_availablePorts);
   bool get isSocketConnected => _socket?.connected ?? false;
 
-  static List<String> getAvailablePorts() => const [];
-  static String getPortDescription(String portName) => portName;
+  static List<String> getAvailablePorts() => sp.SerialPort.availablePorts;
+  static String getPortDescription(String portName) =>
+      sp.SerialPort(portName).description ?? portName;
 
   Future<void> initialize({String serverUrl = defaultBackendUrl}) async {
     _backendUrl = serverUrl;
+    
+    // Start polling the local Windows internal hardware ports
+    _startLocalPortPolling();
 
     if (_isInitialized) {
       if (!isSocketConnected) {
@@ -49,7 +62,6 @@ class SerialPortService {
         _socket?.connect();
         await _waitForSocketReady();
       }
-      await _loadInitialState(serverUrl);
       return;
     }
 
@@ -65,18 +77,15 @@ class SerialPortService {
     );
 
     _socket!.onConnect((_) async {
-      debugPrint('Socket connected to $serverUrl');
+      debugPrint('Socket connected to $_backendUrl (Cloud Backend Attached)');
       if (!(_socketReadyCompleter?.isCompleted ?? true)) {
         _socketReadyCompleter!.complete();
       }
-      await _loadInitialState(serverUrl);
     });
 
     _socket!.onDisconnect((_) {
-      _isConnected = false;
-      _connectedPort = '';
-      onDisconnected?.call();
       _socketReadyCompleter = Completer<void>();
+      // Backend disconnected, we could optionally close USB locally here or stay connected natively
     });
 
     _socket!.onConnectError((error) {
@@ -90,57 +99,15 @@ class SerialPortService {
       onError?.call('Backend socket error: $error');
     });
 
-    _socket!.on('port_detected', (payload) {
-      final port = _extractPort(payload);
-      if (port == null) return;
-      if (!_availablePorts.contains(port)) {
-        _availablePorts = [..._availablePorts, port];
-        onPortsChanged?.call(_availablePorts);
-      }
-    });
-
-    _socket!.on('port_removed', (payload) {
-      final port = _extractPort(payload);
-      if (port == null) return;
-      _availablePorts = _availablePorts.where((item) => item != port).toList();
-      if (_connectedPort == port) {
-        _isConnected = false;
-        _connectedPort = '';
-        onDisconnected?.call();
-      }
-      onPortsChanged?.call(_availablePorts);
-    });
-
-    _socket!.on('device_connected', (payload) {
-      if (payload is! Map) return;
-      final port = payload['port']?.toString() ?? '';
-      if (port.isEmpty) return;
-      _isConnected = true;
-      _connectedPort = port;
-      onConnected?.call(port);
-    });
-
-    _socket!.on('device_disconnected', (payload) {
-      final port = _extractPort(payload);
-      if (port != null && port == _connectedPort) {
-        _isConnected = false;
-        _connectedPort = '';
-        onDisconnected?.call();
-      }
-    });
+    // We no longer rely on 'port_detected' or 'port_removed' from backend
+    // since we do local USB scanning, but we still listen for CAN data!
 
     _socket!.on('can_rx', (payload) {
       if (payload is! Map) return;
-      final port = payload['port']?.toString() ?? '';
-      if (_connectedPort.isNotEmpty && port != _connectedPort) {
-        return;
-      }
-
       final frame = payload['frame'];
       if (frame is Map) {
         onCanFrameRx?.call(Map<String, dynamic>.from(frame));
       } else {
-        // Legacy fallback
         final decoded = _decodeCanRxFrame(frame);
         if (decoded.isNotEmpty) {
           onDataReceived?.call(decoded);
@@ -148,16 +115,11 @@ class SerialPortService {
       }
     });
 
-    _socket!.on('can_tx', (payload) {
-      if (payload is! Map) return;
-      final port = payload['port']?.toString() ?? '';
-      if (_connectedPort.isNotEmpty && port != _connectedPort) {
-        return;
-      }
-
-      final frame = payload['frame'];
-      if (frame is Map) {
-        onCanFrameTx?.call(Map<String, dynamic>.from(frame));
+    _socket!.on('tx_binary_response', (payload) {
+      // Backend built the byte array for us! Write it natively to our USB
+      if (payload is Map && payload['binary'] is String) {
+        final hexStr = payload['binary'] as String;
+        _writeLocalBytes(_hexStringToBytes(hexStr));
       }
     });
 
@@ -166,93 +128,88 @@ class SerialPortService {
       final error = payload['error']?.toString() ?? 'CAN error';
       onError?.call(error);
     });
-
-    _socket!.on('heartbeat_ack', (payload) {
-      if (payload is! Map) return;
-      final port = payload['port']?.toString() ?? '';
-      if (port.isEmpty) return;
-      if (_connectedPort.isNotEmpty && port != _connectedPort) {
-        return;
-      }
-
-      final status = payload['status']?.toString() ?? 'ok';
-      final rawTimestamp = payload['timestamp']?.toString();
-      final timestamp = rawTimestamp == null
-          ? null
-          : DateTime.tryParse(rawTimestamp)?.toLocal();
-      onHeartbeatAck?.call(port, status, timestamp);
-    });
-
-    _socket!.on('heartbeat_miss', (payload) {
-      if (payload is! Map) return;
-      final port = payload['port']?.toString() ?? '';
-      if (port.isEmpty) return;
-      if (_connectedPort.isNotEmpty && port != _connectedPort) {
-        return;
-      }
-
-      final missCount = payload['missCount'] is num
-          ? (payload['missCount'] as num).toInt()
-          : int.tryParse(payload['missCount']?.toString() ?? '') ?? 0;
-      onHeartbeatMiss?.call(port, missCount);
-    });
-
-    _socket!.on('heartbeat_timeout', (payload) {
-      if (payload is! Map) return;
-      final port = payload['port']?.toString() ?? '';
-      if (port.isEmpty) return;
-      if (_connectedPort.isNotEmpty && port != _connectedPort) {
-        return;
-      }
-
-      _isConnected = false;
-      _connectedPort = '';
-      onHeartbeatTimeout?.call(port);
-      onDisconnected?.call();
-    });
-
+    
     _socket!.connect();
     _isInitialized = true;
     await _waitForSocketReady();
-    await _loadInitialState(serverUrl);
   }
+
+  void _startLocalPortPolling() {
+    _pollingTimer?.cancel();
+    _pollingTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
+      final ports = sp.SerialPort.availablePorts;
+      if (_isConnected && !ports.contains(_connectedPort)) {
+        // Physical Unplug detected locally!
+        disconnect();
+      }
+      
+      if (listEquals(_availablePorts, ports)) return;
+      _availablePorts = ports;
+      onPortsChanged?.call(_availablePorts);
+    });
+  }
+
+  Timer? _heartbeatTimer;
 
   Future<bool> connect(SerialPortConfig config, {CanConfig? canConfig}) async {
     try {
       await initialize();
 
-      final can = canConfig ?? CanConfig();
-      final response = await _postJson(
-        '/api/connect',
-        {
-          'port': config.portName,
-          'channel': can.channel.value,
-          'baudRate': can.nominalBaudRate.value,
-          'mode': can.modeByte,
-          'isFD': can.canType == CanType.canFd,
-          'brs': can.brsEnabled,
-          'nonISO': can.nonIso,
-        },
-      );
-
-      final success = response['success'] == true;
-      if (success) {
-        _isConnected = true;
-        _connectedPort = config.portName;
-        onConnected?.call(config.portName);
-      } else {
-        onError?.call(
-          response['error']?.toString() ??
-              response['message']?.toString() ??
-              'Failed to connect',
-        );
+      if (!isSocketConnected) {
+         onError?.call('Cannot connect hardware: Cloud Backend disconnected at $_backendUrl');
+         return false;
       }
-      return success;
-    } on SocketException catch (error) {
-      onError?.call(
-        'Backend unreachable at $_backendUrl. Please check whether the backend server is running. Details: ${error.message}',
-      );
-      return false;
+      
+      if (_isConnected) await disconnect();
+
+      // Open USB Port Natively on Windows/Mac
+      _port = sp.SerialPort(config.portName);
+      if (!_port!.openReadWrite()) {
+        onError?.call('Failed to open local USB port: ${sp.SerialPort.lastError}');
+        return false;
+      }
+
+      final pConfig = _port!.config;
+      pConfig.baudRate = config.baudRate;
+      pConfig.bits = config.dataBits;
+      pConfig.stopBits = config.stopBits;
+      _port!.config = pConfig;
+
+      _isConnected = true;
+      _connectedPort = config.portName;
+
+      // Start asynchronous low-level reader loop
+      _reader = sp.SerialPortReader(_port!);
+      _readerSubscription = _reader!.stream.listen((Uint8List data) {
+         // Stream literal raw bytes to Cloud Backend (Step 6)
+         _socket?.emit('remote_raw_stream', {
+            'sessionId': 'Laptop1_User',
+            'rawBytes': data.toList(),
+         });
+      }, onError: (err) {
+        onError?.call('Local USB Stream Error: $err');
+        disconnect();
+      }, onDone: () {
+        disconnect();
+      });
+
+      // To complete the connection sequence (Step 1), send A0 frame locally?
+      if (canConfig != null) {
+         final connectFrame = canConfig.buildConnectFrame();
+         _writeLocalBytes(Uint8List.fromList(connectFrame));
+         
+         // Start Local Heartbeat (Hardware drops connection if no D0 00 every 2s)
+         _heartbeatTimer?.cancel();
+         _heartbeatTimer = Timer.periodic(const Duration(milliseconds: 1000), (_) {
+           if (_isConnected) {
+             _writeLocalBytes(Uint8List.fromList([0xD0, 0x00]));
+           }
+         });
+      }
+
+      onConnected?.call(config.portName);
+      return true;
+
     } catch (error) {
       onError?.call('Connect error: $error');
       return false;
@@ -260,11 +217,102 @@ class SerialPortService {
   }
 
   Future<void> disconnect() async {
-    if (_connectedPort.isNotEmpty) {
-      await _postJson('/api/disconnect', {'port': _connectedPort});
+    _heartbeatTimer?.cancel();
+    _readerSubscription?.cancel();
+    _reader?.close();
+    
+    if (_port != null && _port!.isOpen) {
+      try { _port!.close(); } catch (_) {}
     }
+    _port?.dispose();
+    _port = null;
+    
+    final p = _connectedPort;
     _isConnected = false;
     _connectedPort = '';
+    
+    if (p.isNotEmpty) {
+      onDisconnected?.call();
+    }
+  }
+  
+  void dispose() {
+    disconnect();
+    _pollingTimer?.cancel();
+    _socket?.dispose();
+    _socket = null;
+    _isInitialized = false;
+    _socketReadyCompleter = null;
+  }
+
+  void _writeLocalBytes(Uint8List bytes) {
+    if (_port == null || !_port!.isOpen) return;
+    try {
+      _port!.write(bytes);
+    } catch (e) {
+      debugPrint('Local USB Write Error: $e');
+      disconnect();
+    }
+  }
+  
+  bool sendData(Uint8List data) {
+    if (!_isConnected) return false;
+    _writeLocalBytes(data);
+    return true;
+  }
+
+  bool sendMessage(String message) {
+    if (!_isConnected || _connectedPort.isEmpty) {
+      onError?.call('Not connected');
+      return false;
+    }
+    try {
+      final bytes = parseSequenceInput(message, DisplayFormat.hex);
+      if (bytes.length < 7 || bytes[0] != 0xF1 || bytes[1] != 0x01) {
+        onError?.call('Invalid raw CAN frame.');
+        return false;
+      }
+
+      final canId = bytes[2] | (bytes[3] << 8) | (bytes[4] << 16) | (bytes[5] << 24);
+      final dlcChannel = bytes[6];
+      final channel = (dlcChannel >> 4) & 0x0F;
+      final dataBytes = bytes.skip(7).toList();
+
+      // Defer to backend for TX generation (Step 5)
+      _socket?.emit('request_tx_binary', {
+        'canId': canId,
+        'frameData': dataBytes,
+        'channel': channel,
+        'isExtended': (canId & 0x80000000) != 0,
+      });
+
+      return true;
+    } catch (e) {
+      onError?.call('Send error: $e');
+      return false;
+    }
+  }
+
+  int _getDlcCode(int length, bool isFD) {
+    if (!isFD || length <= 8) return length <= 8 ? length : 8;
+    if (length <= 12) return 9;
+    if (length <= 16) return 10;
+    if (length <= 20) return 11;
+    if (length <= 24) return 12;
+    if (length <= 32) return 13;
+    if (length <= 48) return 14;
+    return 15;
+  }
+
+  int _getPaddedLength(int length, bool isFD) {
+    if (!isFD || length <= 8) return length <= 8 ? length : 8;
+    if (length <= 12) return 12;
+    if (length <= 16) return 16;
+    if (length <= 20) return 20;
+    if (length <= 24) return 24;
+    if (length <= 32) return 32;
+    if (length <= 48) return 48;
+    return 64;
   }
 
   bool sendCanFrame({
@@ -279,270 +327,76 @@ class SerialPortService {
       return false;
     }
 
+    int numericCanId = int.tryParse(canId.replaceAll('0x', ''), radix: 16) ?? 0;
+
+    int dlcCode = _getDlcCode(data.length, isFD);
+    int paddedLength = _getPaddedLength(data.length, isFD);
+
+    List<int> paddedData = List.from(data);
+    if (paddedData.length > paddedLength) {
+      paddedData = paddedData.sublist(0, paddedLength);
+    } else {
+      while (paddedData.length < paddedLength) {
+        paddedData.add(0);
+      }
+    }
+
+    // Send logic to backend Cloud to let it build the F1 01 frame (Step 5)
+    _socket?.emit('request_tx_binary', {
+      'canId': numericCanId,
+      'frameData': paddedData,
+      'channel': channel,
+      'isExtended': isExtended,
+    });
+    
+    // Broadcast success to UI
+    final hexData = paddedData.map((e) => e.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ');
+    final canIdStr = '0x${numericCanId.toRadixString(16).padLeft(isExtended ? 8 : 3, '0').toUpperCase()}';
+    onCanFrameTx?.call({
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'canId': canIdStr,
+      'isExtended': isExtended,
+      'channel': channel + 1,
+      'dlc': dlcCode,
+      'dataHex': hexData,
+    });
+
+    return true;
+  }
+
+  Future<void> _waitForSocketReady() async {
+    final completer = _socketReadyCompleter;
+    if (completer == null) return;
+    if (isSocketConnected) {
+      if (!completer.isCompleted) completer.complete();
+      return;
+    }
     try {
-      final payload = {
-        'port': _connectedPort,
-        'canId': canId,
-        'data': data,
-        'channel': channel,
-        'isExtended': isExtended,
-        'isFD': isFD,
-      };
-
-      debugPrint('\n=== FRONTEND SENDING CAN FRAME ===');
-      debugPrint('Port: $_connectedPort');
-      debugPrint('CAN ID: $canId');
-      debugPrint('Channel: $channel');
-      debugPrint('Extended: $isExtended | FD: $isFD');
-      debugPrint('Data: $data');
-      debugPrint('==================================\n');
-
-      unawaited(
-        _postJson('/api/send', payload).catchError((error) {
-          onError?.call('Send error: $error');
-        }),
+      await completer.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw TimeoutException('Timed out waiting for backend socket'),
       );
-      return true;
     } catch (error) {
-      onError?.call('Send error: $error');
-      return false;
+      onError?.call('Backend connection error: $error');
     }
   }
-
-  bool sendMessage(String message) {
-    if (!_isConnected || _connectedPort.isEmpty) {
-      onError?.call('Not connected');
-      return false;
-    }
-
-    try {
-      final bytes = parseSequenceInput(message, DisplayFormat.hex);
-      if (bytes.length < 7 || bytes[0] != 0xF1 || bytes[1] != 0x01) {
-        onError?.call(
-          'Invalid legacy raw CAN frame format. Use the send popup CAN fields (CAN ID, Format, Channel) for normal sending.',
-        );
-        return false;
-      }
-
-      final canId = bytes[2] |
-          (bytes[3] << 8) |
-          (bytes[4] << 16) |
-          (bytes[5] << 24);
-      final dlcChannel = bytes[6];
-      final channel = (dlcChannel >> 4) & 0x0F;
-      final dataBytes = bytes.skip(7).toList();
-
-      final payload = {
-        'port': _connectedPort,
-        'canId': canId,
-        'data': dataBytes,
-        'channel': channel,
-        'isExtended': (canId & 0x80000000) != 0,
-      };
-
-      debugPrint('\n=== FRONTEND SENDING LEGACY FRAME ===');
-      debugPrint('Port: $_connectedPort');
-      debugPrint('CAN ID: $canId');
-      debugPrint('Channel: $channel');
-      debugPrint('Extended: ${(canId & 0x80000000) != 0}');
-      debugPrint('Data: $dataBytes');
-      debugPrint('=====================================\n');
-
-      unawaited(
-        _postJson('/api/send', payload).catchError((error) {
-          onError?.call('Send error: $error');
-        }),
-      );
-      return true;
-    } catch (e) {
-      onError?.call('Send error: $e');
-      return false;
-    }
-  }
-
-  void dispose() {
-    _socket?.dispose();
-    _socket = null;
-    _isInitialized = false;
-    _socketReadyCompleter = null;
-  }
-
-  Future<void> _loadInitialState(String serverUrl) async {
-    try {
-      final portsResult = await _getJson('/api/ports');
-      final ports = portsResult['ports'];
-      if (ports is List) {
-        _availablePorts = ports
-            .map((item) {
-              if (item is Map) {
-                return item['path']?.toString() ?? item['port']?.toString() ?? '';
-              }
-              return item.toString();
-            })
-            .where((item) => item.isNotEmpty)
-            .toList();
-        onPortsChanged?.call(_availablePorts);
-      }
-
-      final statusResult = await _getJson('/api/status');
-      final connections = statusResult['connections'];
-      if (connections is List) {
-        final connected = connections.cast<Map?>().firstWhere(
-          (item) => item != null && item['status']?.toString() == 'connected',
-          orElse: () => null,
-        );
-        if (connected != null) {
-          final port = connected['port']?.toString() ?? '';
-          if (port.isNotEmpty) {
-            _isConnected = true;
-            _connectedPort = port;
-            onConnected?.call(port);
-          }
-        }
-      }
-    } catch (error) {
-      onError?.call('Backend init error: $error');
-    }
-  }
-
-  Future<Map<String, dynamic>> _getJson(String path) async {
-    final client = HttpClient();
-    try {
-      final uri = Uri.parse('$_backendUrl$path');
-      final request = await client.getUrl(uri);
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      return _decodeJsonResponse(
-        method: 'GET',
-        path: path,
-        statusCode: response.statusCode,
-        body: body,
-      );
-    } finally {
-      client.close();
-    }
-  }
-
-  Future<Map<String, dynamic>> _postJson(
-    String path,
-    Map<String, dynamic> payload,
-  ) async {
-    final client = HttpClient();
-    try {
-      final uri = Uri.parse('$_backendUrl$path');
-      final request = await client.postUrl(uri);
-      request.headers.contentType = ContentType.json;
-      request.write(jsonEncode(payload));
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      return _decodeJsonResponse(
-        method: 'POST',
-        path: path,
-        statusCode: response.statusCode,
-        body: body,
-      );
-    } finally {
-      client.close();
-    }
-  }
-
-  Map<String, dynamic> _decodeJsonResponse({
-    required String method,
-    required String path,
-    required int statusCode,
-    required String body,
-  }) {
-    final trimmed = body.trim();
-    if (trimmed.isEmpty) {
-      throw HttpException(
-        '$method $path returned an empty response body (HTTP $statusCode) from $_backendUrl',
-      );
-    }
-
-    try {
-      final decoded = jsonDecode(trimmed);
-      if (decoded is Map<String, dynamic>) {
-        return decoded;
-      }
-      if (decoded is Map) {
-        return decoded.cast<String, dynamic>();
-      }
-      throw FormatException('Expected a JSON object response');
-    } on FormatException catch (error) {
-      final preview = trimmed.length > 200
-          ? '${trimmed.substring(0, 200)}...'
-          : trimmed;
-      throw FormatException(
-        '$method $path returned invalid JSON (HTTP $statusCode): $preview',
-        error.source,
-        error.offset,
-      );
-    }
-  }
-
-  String? _extractPort(dynamic payload) {
-    if (payload is Map) {
-      final port = payload['port']?.toString();
-      if (port != null && port.isNotEmpty) {
-        return port;
-      }
-    }
-    return null;
-  }
-
+  
   Uint8List _decodeCanRxFrame(dynamic framePayload) {
-    if (framePayload is! Map) {
-      return Uint8List(0);
-    }
-
+    if (framePayload is! Map) return Uint8List(0);
     final raw = framePayload['raw']?.toString() ?? '';
-    if (raw.isNotEmpty) {
-      return _hexStringToBytes(raw);
-    }
-
+    if (raw.isNotEmpty) return _hexStringToBytes(raw);
     final dataHex = framePayload['dataHex']?.toString() ?? '';
-    if (dataHex.isNotEmpty) {
-      return _hexStringToBytes(dataHex);
-    }
-
+    if (dataHex.isNotEmpty) return _hexStringToBytes(dataHex);
     return Uint8List(0);
   }
 
   Uint8List _hexStringToBytes(String text) {
     final normalized = text.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '');
-    if (normalized.isEmpty || normalized.length.isOdd) {
-      return Uint8List(0);
-    }
-
+    if (normalized.isEmpty || normalized.length.isOdd) return Uint8List(0);
     final bytes = <int>[];
     for (var index = 0; index < normalized.length; index += 2) {
       bytes.add(int.parse(normalized.substring(index, index + 2), radix: 16));
     }
     return Uint8List.fromList(bytes);
-  }
-
-  Future<void> _waitForSocketReady() async {
-    final completer = _socketReadyCompleter;
-    if (completer == null) {
-      return;
-    }
-
-    if (isSocketConnected) {
-      if (!completer.isCompleted) {
-        completer.complete();
-      }
-      return;
-    }
-
-    try {
-      await completer.future.timeout(
-        const Duration(seconds: 5),
-        onTimeout: () {
-          throw TimeoutException('Timed out waiting for backend socket');
-        },
-      );
-    } catch (error) {
-      onError?.call('Backend connection error: $error');
-    }
   }
 }

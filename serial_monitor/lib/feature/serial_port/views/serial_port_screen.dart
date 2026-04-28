@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -161,40 +162,35 @@ class SerialPortScreen extends StatelessWidget {
           SizedBox(
             height: 34,
             child: Builder(
-              builder: (context) => OutlinedButton.icon(
-                onPressed: controller.isConnected
+              builder: (context) => ElevatedButton.icon(
+                onPressed: controller.isConnecting
                     ? null
-                    : () => _showCanConfigDialog(context, controller),
-                icon: const Icon(Icons.edit, size: 16),
-                label: const Text('Edit'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.primaryColor,
+                    : () async {
+                        if (!controller.isConnected) {
+                          final shouldConnect = await _showCanConfigDialog(context, controller);
+                          if (shouldConnect == true) {
+                            controller.toggleConnection();
+                          }
+                        } else {
+                          controller.toggleConnection();
+                        }
+                      },
+                icon: Icon(
+                  controller.isConnected ? Icons.link_off : Icons.link,
+                  size: 16,
                 ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            height: 34,
-            child: ElevatedButton.icon(
-              onPressed: controller.isConnecting
-                  ? null
-                  : controller.toggleConnection,
-              icon: Icon(
-                controller.isConnected ? Icons.link_off : Icons.link,
-                size: 16,
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: controller.isConnected
-                    ? AppTheme.errorColor
-                    : AppTheme.primaryColor,
-              ),
-              label: Text(
-                controller.isConnecting
-                    ? 'Connecting...'
-                    : controller.isConnected
-                        ? 'Disconnect'
-                        : 'Connect',
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: controller.isConnected
+                      ? AppTheme.errorColor
+                      : AppTheme.primaryColor,
+                ),
+                label: Text(
+                  controller.isConnecting
+                      ? 'Connecting...'
+                      : controller.isConnected
+                          ? 'Disconnect'
+                          : 'Connect',
+                ),
               ),
             ),
           ),
@@ -498,6 +494,58 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
     });
   }
 
+  Future<String?> _showCanIdDialog(BuildContext context) async {
+    final TextEditingController canIdController = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppTheme.bgCard,
+          title: Text('New Tab CAN ID', style: GoogleFonts.openSans(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+          content: TextField(
+            controller: canIdController,
+            style: GoogleFonts.robotoMono(color: AppTheme.textPrimary),
+            decoration: InputDecoration(
+              hintText: '00 00 00 01 (Leave empty for all messages)',
+              hintStyle: GoogleFonts.robotoMono(color: AppTheme.textMuted),
+              enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: AppTheme.borderColor)),
+              focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: AppTheme.primaryColor)),
+            ),
+            onChanged: (value) {
+              final compact = value.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '').toUpperCase();
+              final buffer = StringBuffer();
+              for (var index = 0; index < compact.length; index++) {
+                if (index > 0 && index % 2 == 0) buffer.write(' ');
+                buffer.write(compact[index]);
+              }
+              final normalized = buffer.toString();
+              if (normalized != value) {
+                canIdController.value = TextEditingValue(
+                  text: normalized,
+                  selection: TextSelection.collapsed(offset: normalized.length),
+                );
+              }
+            },
+            onSubmitted: (_) => Navigator.of(context).pop(canIdController.text),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(null),
+              child: const Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(canIdController.text),
+              child: const Text('OK', style: TextStyle(color: AppTheme.primaryColor)),
+            ),
+          ],
+        );
+      },
+    ).then((val) {
+      canIdController.dispose();
+      return val;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
@@ -532,7 +580,12 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
                   icon: Icons.add,
                   tooltip: 'Add tab',
                   onPressed: controller.tabs.length < AppConstants.maxTabs
-                      ? controller.addTab
+                      ? () async {
+                          final canId = await _showCanIdDialog(context);
+                          if (canId != null) {
+                            controller.addTab(canId: canId);
+                          }
+                        }
                       : null,
                 ),
                 const SizedBox(width: 2),
@@ -590,7 +643,6 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
                 width: 70,
                 child: TextField(
                   controller: _editController,
-                  autofocus: true,
                   style: GoogleFonts.openSans(
                     fontSize: 12,
                     color: AppTheme.textPrimary,
@@ -780,7 +832,7 @@ class _DocklightSendButton extends StatelessWidget {
 //  CAN Configuration Edit Dialog
 // ═══════════════════════════════════════════════════════════════
 
-Future<void> _showCanConfigDialog(
+Future<bool?> _showCanConfigDialog(
   BuildContext context,
   PortController controller,
 ) async {
@@ -793,7 +845,7 @@ Future<void> _showCanConfigDialog(
   var brsEnabled = controller.canConfig.brsEnabled;
   var nonIso = controller.canConfig.nonIso;
 
-  await showDialog<void>(
+  return await showDialog<bool>(
     context: context,
     builder: (context) {
       return StatefulBuilder(
@@ -1052,50 +1104,7 @@ Future<void> _showCanConfigDialog(
                             ),
                             const SizedBox(height: 16),
 
-                            // ── Connect Frame Preview ──
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF8F9FB),
-                                border: Border.all(color: AppTheme.borderLight),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'CONNECT FRAME PREVIEW',
-                                    style: GoogleFonts.rajdhani(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: AppTheme.textMuted,
-                                      letterSpacing: 1.5,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    child: Text(
-                                      hexFrame,
-                                      style: GoogleFonts.robotoMono(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppTheme.primaryColor,
-                                        letterSpacing: 1,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'CMD   IF   CH   BAUD  MODE  FLAGS  RSV',
-                                    style: GoogleFonts.robotoMono(
-                                      fontSize: 9,
-                                      color: AppTheme.textMuted,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                            // ── Connect Frame Preview (Removed) ──
                           ],
                         ),
                       ),
@@ -1109,7 +1118,7 @@ Future<void> _showCanConfigDialog(
                         SizedBox(
                           width: 120,
                           child: OutlinedButton(
-                            onPressed: () => Navigator.of(context).pop(),
+                            onPressed: () => Navigator.of(context).pop(false),
                             child: const Text('Cancel'),
                           ),
                         ),
@@ -1127,9 +1136,9 @@ Future<void> _showCanConfigDialog(
                                 brsEnabled: brsEnabled,
                                 nonIso: nonIso,
                               );
-                              Navigator.of(context).pop();
+                              Navigator.of(context).pop(true);
                             },
-                            child: const Text('OK'),
+                            child: const Text('Connect'),
                           ),
                         ),
                       ],
@@ -1308,7 +1317,31 @@ Future<void> _showEditSendSequenceDialog(
   }
 
   void normalizeEditorInput(StateSetter setState, String value) {
-    final normalized = _normalizeSequenceEditorInput(value, format);
+    String normalized = _normalizeSequenceEditorInput(value, format);
+
+    final int maxBytes = controller.canConfig.canType == CanType.classicCan ? 8 : 64;
+    try {
+      final bytes = parseSequenceInput(normalized, format);
+      if (bytes.length > maxBytes) {
+        final truncatedBytes = Uint8List.fromList(bytes.sublist(0, maxBytes));
+        normalized = formatSequenceBytes(truncatedBytes, format);
+      }
+    } catch (_) {
+      if (format == DisplayFormat.ascii && normalized.length > maxBytes) {
+        normalized = normalized.substring(0, maxBytes);
+      } else if (format == DisplayFormat.hex) {
+        final clean = normalized.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '');
+        if (clean.length > maxBytes * 2) {
+          normalized = _normalizeSequenceEditorInput(clean.substring(0, maxBytes * 2), format);
+        }
+      } else if (format == DisplayFormat.binary) {
+        final clean = normalized.replaceAll(RegExp(r'[^01]'), '');
+        if (clean.length > maxBytes * 8) {
+          normalized = _normalizeSequenceEditorInput(clean.substring(0, maxBytes * 8), format);
+        }
+      }
+    }
+
     if (normalized != value) {
       sequenceController.value = TextEditingValue(
         text: normalized,
@@ -1475,12 +1508,26 @@ Future<void> _showEditSendSequenceDialog(
                                   ),
                                 ),
                                 const Spacer(),
-                                Text(
-                                  'Pos. ${sequenceController.text.length} / ${sequenceController.text.isEmpty ? 0 : sequenceController.text.length - 1}',
-                                  style: GoogleFonts.openSans(
-                                    fontSize: 12,
-                                    color: AppTheme.textSecondary,
-                                  ),
+                                Builder(
+                                  builder: (context) {
+                                    final int maxBytes = controller.canConfig.canType == CanType.classicCan ? 8 : 64;
+                                    int currentBytes = 0;
+                                    try {
+                                      currentBytes = parseSequenceInput(sequenceController.text, format).length;
+                                    } catch (_) {
+                                      final clean = sequenceController.text.replaceAll(RegExp(r'[^0-9a-zA-Z]'), '');
+                                      if (format == DisplayFormat.hex) currentBytes = clean.length ~/ 2;
+                                      else if (format == DisplayFormat.binary) currentBytes = clean.length ~/ 8;
+                                      else currentBytes = clean.length;
+                                    }
+                                    return Text(
+                                      'Bytes: $currentBytes / $maxBytes',
+                                      style: GoogleFonts.openSans(
+                                        fontSize: 12,
+                                        color: currentBytes > maxBytes ? AppTheme.errorColor : AppTheme.textSecondary,
+                                      ),
+                                    );
+                                  }
                                 ),
                               ],
                             ),
@@ -1544,9 +1591,21 @@ Future<void> _showEditSendSequenceDialog(
                                                   _canFrameFormatLabel,
                                               onChanged: (value) {
                                                 if (value != null) {
-                                                  setState(
-                                                    () => canFrameFormat = value,
-                                                  );
+                                                  setState(() {
+                                                    canFrameFormat = value;
+                                                    String clean = canIdController.text.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '').toUpperCase();
+                                                    if (clean.isNotEmpty) {
+                                                      int? intValue = int.tryParse(clean, radix: 16);
+                                                      if (intValue != null) {
+                                                        if (canFrameFormat == CanFrameFormat.standard && intValue > 0x7FF) {
+                                                          clean = '7FF';
+                                                        } else if (canFrameFormat == CanFrameFormat.extended && intValue > 0x1FFFFFFF) {
+                                                          clean = '1FFFFFFF';
+                                                        }
+                                                      }
+                                                    }
+                                                    canIdController.text = _groupInput(clean, 2);
+                                                  });
                                                 }
                                               },
                                             ),
@@ -1614,25 +1673,24 @@ Future<void> _showEditSendSequenceDialog(
                                                 fillColor: Colors.white,
                                               ),
                                               onChanged: (value) {
-                                                final normalized = _groupInput(
-                                                  value
-                                                      .replaceAll(
-                                                        RegExp(
-                                                          r'[^0-9A-Fa-f]',
-                                                        ),
-                                                        '',
-                                                      )
-                                                      .toUpperCase(),
-                                                  2,
-                                                );
+                                                String clean = value.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '').toUpperCase();
+                                                if (clean.isNotEmpty) {
+                                                  int? intValue = int.tryParse(clean, radix: 16);
+                                                  if (intValue != null) {
+                                                    if (canFrameFormat == CanFrameFormat.standard && intValue > 0x7FF) {
+                                                      clean = '7FF';
+                                                    } else if (canFrameFormat == CanFrameFormat.extended && intValue > 0x1FFFFFFF) {
+                                                      clean = '1FFFFFFF';
+                                                    }
+                                                  }
+                                                }
+                                                final normalized = _groupInput(clean, 2);
                                                 if (normalized != value) {
                                                   canIdController.value =
                                                       TextEditingValue(
                                                         text: normalized,
-                                                        selection:
-                                                            TextSelection.collapsed(
-                                                          offset:
-                                                              normalized.length,
+                                                        selection: TextSelection.collapsed(
+                                                          offset: normalized.length,
                                                         ),
                                                       );
                                                 }
@@ -1802,34 +1860,7 @@ Future<void> _showEditSendSequenceDialog(
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 14),
-                            Text(
-                              '4 - Sequence Documentation',
-                              style: GoogleFonts.openSans(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.textPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            SizedBox(
-                              height: 120,
-                              child: TextField(
-                                controller: documentationController,
-                                maxLines: null,
-                                expands: true,
-                                style: GoogleFonts.openSans(
-                                  fontSize: 13,
-                                  color: AppTheme.textPrimary,
-                                ),
-                                decoration: const InputDecoration(
-                                  hintText: 'Add your documentation here',
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                  alignLabelWithHint: true,
-                                ),
-                              ),
-                            ),
+
                           ],
                         ),
                       ),

@@ -84,10 +84,11 @@ class MessageWidget extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               alignment: Alignment.centerLeft,
-              child: SelectableText(
+              child: Text(
                 dataStr,
                 style: monoStyle,
                 maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ),
@@ -104,10 +105,11 @@ class MessageWidget extends StatelessWidget {
         border: Border(right: BorderSide(color: Color(0xFFEEEEEE))),
       ),
       alignment: Alignment.centerLeft,
-      child: SelectableText(
+      child: Text(
         text,
         style: style,
         maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }
