@@ -169,10 +169,13 @@ class SerialPortScreen extends StatelessWidget {
                         if (!controller.isConnected) {
                           final shouldConnect = await _showCanConfigDialog(context, controller);
                           if (shouldConnect == true) {
-                            controller.toggleConnection();
+                            await controller.connect();
+                            if (context.mounted) {
+                              _showConnectionPopup(context, controller.isConnected, controller.statusMessage);
+                            }
                           }
                         } else {
-                          controller.toggleConnection();
+                          await controller.disconnect();
                         }
                       },
                 icon: Icon(
@@ -452,6 +455,43 @@ class SerialPortScreen extends StatelessWidget {
       return '${(value / 1000).toStringAsFixed(1)}k';
     }
     return '${(value / 1000000).toStringAsFixed(1)}m';
+  }
+
+  void _showConnectionPopup(BuildContext context, bool isSuccess, String message) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppTheme.bgCard,
+          title: Row(
+            children: [
+              Icon(
+                isSuccess ? Icons.check_circle : Icons.error,
+                color: isSuccess ? Colors.green : AppTheme.errorColor,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                isSuccess ? 'Connection Successful' : 'Connection Failed',
+                style: GoogleFonts.openSans(
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            message,
+            style: GoogleFonts.openSans(color: AppTheme.textPrimary),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK', style: TextStyle(color: AppTheme.primaryColor)),
+            ),
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -850,23 +890,6 @@ Future<bool?> _showCanConfigDialog(
     builder: (context) {
       return StatefulBuilder(
         builder: (context, setState) {
-          // Build the live connect frame preview
-          int flagsByte = 0;
-          if (canType == CanType.canFd) flagsByte |= 0x01;
-          if (brsEnabled) flagsByte |= 0x02;
-          if (nonIso) flagsByte |= 0x04;
-
-          final modeByte = canType == CanType.classicCan
-              ? classicMode.value
-              : fdDataBaud.value;
-
-          final frame = [
-            0xA0, 0x01, channel.value,
-            nominalBaudRate.value, modeByte, flagsByte, 0x00,
-          ];
-          final hexFrame = frame
-              .map((b) => '0x${b.toRadixString(16).toUpperCase().padLeft(2, '0')}')
-              .join('  ');
 
           return Dialog(
             insetPadding: const EdgeInsets.symmetric(
@@ -1516,9 +1539,13 @@ Future<void> _showEditSendSequenceDialog(
                                       currentBytes = parseSequenceInput(sequenceController.text, format).length;
                                     } catch (_) {
                                       final clean = sequenceController.text.replaceAll(RegExp(r'[^0-9a-zA-Z]'), '');
-                                      if (format == DisplayFormat.hex) currentBytes = clean.length ~/ 2;
-                                      else if (format == DisplayFormat.binary) currentBytes = clean.length ~/ 8;
-                                      else currentBytes = clean.length;
+                                      if (format == DisplayFormat.hex) {
+                                        currentBytes = clean.length ~/ 2;
+                                      } else if (format == DisplayFormat.binary) {
+                                        currentBytes = clean.length ~/ 8;
+                                      } else {
+                                        currentBytes = clean.length;
+                                      }
                                     }
                                     return Text(
                                       'Bytes: $currentBytes / $maxBytes',
@@ -1847,16 +1874,7 @@ Future<void> _showEditSendSequenceDialog(
                                       ),
                                     ],
                                   ),
-                                  Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: Text(
-                                      'These fields are saved in the frontend now and can be wired to backend send behavior later.',
-                                      style: GoogleFonts.openSans(
-                                        fontSize: 11,
-                                        color: AppTheme.textMuted,
-                                      ),
-                                    ),
-                                  ),
+
                                 ],
                               ),
                             ),

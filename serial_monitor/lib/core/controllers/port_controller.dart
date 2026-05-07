@@ -60,7 +60,7 @@ class PortController extends ChangeNotifier {
     _service.onHeartbeatMiss = _handleHeartbeatMiss;
     _service.onHeartbeatTimeout = _handleHeartbeatTimeout;
 
-    // Connect to the active backend bridge and seed the initial port state.
+    // Start local USB port polling.
     _service.initialize();
 
     // Load saved config
@@ -384,7 +384,7 @@ class PortController extends ChangeNotifier {
       return false;
     }
 
-    // Backend accepts ASCII text directly and hex-encoded bytes for binary data.
+    // Convert to hex format for the serial service.
     final outboundMessage = selectedFormat == DisplayFormat.ascii
         ? input
         : formatSequenceBytes(bytes, DisplayFormat.hex);
@@ -432,7 +432,7 @@ class PortController extends ChangeNotifier {
       return false;
     }
 
-    int currentCanId = int.tryParse(sequence.canIdHex.replaceAll('0x', ''), radix: 16) ?? 0;
+    int currentCanId = int.tryParse(normalizedCanId.replaceAll('0x', ''), radix: 16) ?? 0;
     Uint8List currentBytes = Uint8List.fromList(baseBytes);
 
     final channelValue = sequence.channel == 2 ? 1 : 0;
@@ -526,8 +526,9 @@ class PortController extends ChangeNotifier {
   }
 
   void _handleCanFrameRx(Map<String, dynamic> frame) {
-    // Filter out system control frames from backend
-    if (frame['type'] == 'heartbeat' || frame['type'] == 'connect_ack') {
+    // Filter out system control frames
+    if (frame['type'] == 'heartbeat' || frame['type'] == 'connect_ack' ||
+        frame['type'] == 'HEARTBEAT_RESPONSE' || frame['type'] == 'CONNECT_RESPONSE') {
       return;
     }
 

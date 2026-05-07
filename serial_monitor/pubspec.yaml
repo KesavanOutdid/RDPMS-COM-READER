@@ -13,7 +13,6 @@ dependencies:
   shared_preferences: ^2.3.3
   flutter_libserialport: ^0.4.0
   google_fonts: ^6.2.1
-  socket_io_client: ^3.1.2
 
 dev_dependencies:
   flutter_test:

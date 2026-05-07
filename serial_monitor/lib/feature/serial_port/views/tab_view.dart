@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import '../../../core/config/can_config.dart';
 import '../../../core/config/models.dart';
 import '../../../core/controllers/port_controller.dart';
 import '../../../utils/theme/app_theme.dart';
@@ -27,13 +28,25 @@ class _TabViewWidgetState extends State<TabViewWidget> {
     super.dispose();
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom(PortController controller, int tabIndex, SerialTab tab) {
     if (_scrollController.hasClients) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!_scrollController.hasClients) {
           return;
         }
-        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+        
+        final position = _scrollController.position;
+        
+        // If the user has manually scrolled up more than 50 pixels from the bottom
+        if (position.pixels < position.maxScrollExtent - 50) {
+          // Automatically turn off auto-scroll so they can read in peace
+          if (tab.autoScroll) {
+            controller.toggleAutoScroll(tabIndex);
+          }
+        } else {
+          // Otherwise, stick to the bottom
+          position.jumpTo(position.maxScrollExtent);
+        }
       });
     }
   }
@@ -62,7 +75,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
         final tab = controller.tabs[widget.tabIndex];
 
         if (tab.autoScroll && tab.messages.isNotEmpty) {
-          _scrollToBottom();
+          _scrollToBottom(controller, widget.tabIndex, tab);
         }
 
         return Column(
@@ -73,6 +86,32 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: Checkbox(
+                            value: tab.autoScroll,
+                            onChanged: (val) {
+                              controller.toggleAutoScroll(widget.tabIndex);
+                            },
+                            activeColor: AppTheme.primaryColor,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Auto-Scroll',
+                          style: GoogleFonts.openSans(
+                            fontSize: 12,
+                            color: AppTheme.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 16),
                     TextButton.icon(
                       onPressed: () => controller.clearMessages(widget.tabIndex),
                       icon: const Icon(Icons.delete_outline, size: 14, color: AppTheme.textSecondary),
@@ -92,7 +131,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                     ),
                   ],
                 ),
-                child: _buildMessageArea(tab),
+                child: _buildMessageArea(tab, controller.canConfig.canType == CanType.canFd),
               ),
             ),
           ],
@@ -143,12 +182,12 @@ class _TabViewWidgetState extends State<TabViewWidget> {
     );
   }
 
-  Widget _buildMessageArea(SerialTab tab) {
+  Widget _buildMessageArea(SerialTab tab, bool isFd) {
     return Container(
       color: Colors.white,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          const double minTotalWidth = 1000.0;
+          final double minTotalWidth = isFd ? 2200.0 : 1000.0;
           final double tableWidth = constraints.maxWidth > minTotalWidth
               ? constraints.maxWidth
               : minTotalWidth;
@@ -233,11 +272,11 @@ class _TabViewWidgetState extends State<TabViewWidget> {
         children: [
           const SizedBox(width: 24),
           _headerCell('Index', 60, style),
-          _headerCell('System Time', 100, style),
-          _headerCell('Time Stamp', 90, style),
+          _headerCell('System Time', 110, style),
+          _headerCell('Time Stamp', 110, style),
           _headerCell('Channel', 70, style),
-          _headerCell('Direction', 70, style),
-          _headerCell('Frame ID', 80, style),
+          _headerCell('Direction', 80, style),
+          _headerCell('Frame ID', 90, style),
           _headerCell('Type', 70, style),
           _headerCell('Format', 80, style),
           _headerCell('DLC', 60, style),
@@ -264,89 +303,8 @@ class _TabViewWidgetState extends State<TabViewWidget> {
       ),
     );
   }
-
-  Widget _buildDocumentationArea(SerialTab tab) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      color: Colors.white,
-      alignment: Alignment.topLeft,
-      child: SelectableText(
-        _documentationBody(tab),
-        style: GoogleFonts.openSans(
-          fontSize: 12,
-          color: AppTheme.textPrimary,
-          height: 1.35,
-        ),
-      ),
-    );
-  }
-
-  String _documentationTitle(SerialTab tab) {
-    if (tab.sendSequences.isEmpty) {
-      return 'No send sequence selected';
-    }
-
-    final selectedIndex = tab.selectedSendSequenceIndex.clamp(
-      0,
-      tab.sendSequences.length - 1,
-    );
-    final sequence = tab.sendSequences[selectedIndex];
-    return 'About Send Sequence Index $selectedIndex : ${sequence.name}';
-  }
-
-  String _documentationBody(SerialTab tab) {
-    if (tab.sendSequences.isEmpty) {
-      return '(Send a sequence to see documentation here)';
-    }
-
-    final selectedIndex = tab.selectedSendSequenceIndex.clamp(
-      0,
-      tab.sendSequences.length - 1,
-    );
-    final sequence = tab.sendSequences[selectedIndex];
-    final docs = sequence.documentation.trim();
-    final preview = sequence.sequencePreview.trim();
-    final canOptions = _canOptionsSummary(sequence);
-
-    if (docs.isNotEmpty) {
-      return canOptions.isEmpty ? docs : '$canOptions\n\n$docs';
-    }
-
-    if (preview.isNotEmpty) {
-      final body = 'Saved ${_displayFormatLabel(sequence.format)} sequence\n$preview';
-      return canOptions.isEmpty ? body : '$canOptions\n\n$body';
-    }
-
-    return canOptions.isEmpty
-        ? '(Add your documentation here)'
-        : '$canOptions\n\n(Add your documentation here)';
-  }
-
-  String _canOptionsSummary(SendSequence sequence) {
-    final idText = sequence.canIdHex.trim().isEmpty
-        ? 'Not set'
-        : sequence.canIdHex.trim();
-    final frameFormat = sequence.canFrameFormat == CanFrameFormat.standard
-        ? 'Standard'
-        : 'Extended';
-    final frameType = sequence.canFrameType == CanFrameType.data
-        ? 'Data'
-        : 'Remote';
-
-    return [
-      'CAN Options',
-      'Format: $frameFormat',
-      'Type: $frameType',
-      'CAN ID: $idText',
-      'Channel: ${sequence.channel}',
-      'Repeat: ${sequence.repeatCount}',
-      'Cycle: ${sequence.sendCycleMs} ms',
-      'ID Inc.: ${sequence.idIncrementEnabled ? 'On' : 'Off'}',
-      'Data Inc.: ${sequence.dataIncrementEnabled ? 'On' : 'Off'}',
-    ].join('\n');
-  }
 }
+
 
 class _GroupPanel extends StatelessWidget {
   final String title;

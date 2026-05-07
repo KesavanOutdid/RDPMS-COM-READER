@@ -32,8 +32,7 @@ class MessageWidget extends StatelessWidget {
       fontSize: 12,
       color: AppTheme.textPrimary,
     );
-    
-    final selectedRowColor = isSent ? Colors.transparent : Colors.transparent;
+
 
     // Prepare data
     final idxStr = index.toString().padLeft(5, '0');
@@ -45,7 +44,7 @@ class MessageWidget extends StatelessWidget {
     final type = message.type ?? '-';
     final format = message.canFormat ?? '-';
     
-    final dlc = message.dlc != null ? '0x${message.dlc.toString().padLeft(2, '0')}' : '-';
+    final dlc = message.dlc != null ? '0x${message.dlc!.toRadixString(16).toUpperCase().padLeft(2, '0')}' : '-';
     
     final dataPrefix = displayFormat == DisplayFormat.hex ? 'x| ' : '';
     final dataStr = '$dataPrefix${message.getFormatted(displayFormat)}';
@@ -72,11 +71,11 @@ class MessageWidget extends StatelessWidget {
             ),
           ),
           _cell(idxStr, 60, textStyle),
-          _cell(sysTime, 100, textStyle),
-          _cell(tStamp, 90, textStyle),
+          _cell(sysTime, 110, textStyle),
+          _cell(tStamp, 110, textStyle),
           _cell(ch, 70, textStyle),
-          _cell(dir, 70, textStyle),
-          _cell(fId, 80, textStyle),
+          _cell(dir, 80, textStyle),
+          _cell(fId, 90, textStyle),
           _cell(type, 70, textStyle),
           _cell(format, 80, textStyle),
           _cell(dlc, 60, monoStyle),
