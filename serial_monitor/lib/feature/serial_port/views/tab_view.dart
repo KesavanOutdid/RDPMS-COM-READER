@@ -28,25 +28,14 @@ class _TabViewWidgetState extends State<TabViewWidget> {
     super.dispose();
   }
 
-  void _scrollToBottom(PortController controller, int tabIndex, SerialTab tab) {
+  void _scrollToBottom() {
     if (_scrollController.hasClients) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!_scrollController.hasClients) {
           return;
         }
-        
         final position = _scrollController.position;
-        
-        // If the user has manually scrolled up more than 50 pixels from the bottom
-        if (position.pixels < position.maxScrollExtent - 50) {
-          // Automatically turn off auto-scroll so they can read in peace
-          if (tab.autoScroll) {
-            controller.toggleAutoScroll(tabIndex);
-          }
-        } else {
-          // Otherwise, stick to the bottom
-          position.jumpTo(position.maxScrollExtent);
-        }
+        position.jumpTo(position.maxScrollExtent);
       });
     }
   }
@@ -75,7 +64,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
         final tab = controller.tabs[widget.tabIndex];
 
         if (tab.autoScroll && tab.messages.isNotEmpty) {
-          _scrollToBottom(controller, widget.tabIndex, tab);
+          _scrollToBottom();
         }
 
         return Column(
@@ -86,43 +75,12 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          height: 24,
-                          width: 24,
-                          child: Checkbox(
-                            value: tab.autoScroll,
-                            onChanged: (val) {
-                              controller.toggleAutoScroll(widget.tabIndex);
-                            },
-                            activeColor: AppTheme.primaryColor,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Auto-Scroll',
-                          style: GoogleFonts.openSans(
-                            fontSize: 12,
-                            color: AppTheme.textSecondary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 16),
-                    TextButton.icon(
+                    _buildActionButton(
+                      icon: Icons.delete_outline,
+                      label: 'Clear',
                       onPressed: () => controller.clearMessages(widget.tabIndex),
-                      icon: const Icon(Icons.delete_outline, size: 14, color: AppTheme.textSecondary),
-                      label: Text('Clear', style: GoogleFonts.openSans(fontSize: 12, color: AppTheme.textSecondary)),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     _buildModeTabs(
                       currentFormat: tab.displayFormat,
                       onChanged: (format) {
@@ -140,13 +98,50 @@ class _TabViewWidgetState extends State<TabViewWidget> {
     );
   }
 
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(3),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(3),
+            border: Border.all(color: AppTheme.borderColor),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 12, color: AppTheme.textMuted),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 10,
+                  color: AppTheme.textSecondary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildModeTabs({
     required DisplayFormat currentFormat,
     required ValueChanged<DisplayFormat> onChanged,
   }) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.bgDark,
+        borderRadius: BorderRadius.circular(4),
         border: Border.all(color: AppTheme.borderColor),
       ),
       child: Row(
@@ -156,23 +151,19 @@ class _TabViewWidgetState extends State<TabViewWidget> {
           return InkWell(
             onTap: () => onChanged(format),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
                 color: selected
-                    ? AppTheme.selectionBlueSoft
+                    ? AppTheme.primaryColor.withValues(alpha: 0.1)
                     : Colors.transparent,
-                border: format == DisplayFormat.values.last
-                    ? null
-                    : const Border(
-                        right: BorderSide(color: AppTheme.borderLight),
-                      ),
+                borderRadius: BorderRadius.circular(3),
               ),
               child: Text(
                 _displayFormatLabel(format),
-                style: GoogleFonts.openSans(
-                  fontSize: 12,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  color: AppTheme.textPrimary,
+                style: GoogleFonts.inter(
+                  fontSize: 10,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  color: selected ? AppTheme.primaryColor : AppTheme.textSecondary,
                 ),
               ),
             ),
@@ -184,7 +175,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
 
   Widget _buildMessageArea(SerialTab tab, bool isFd) {
     return Container(
-      color: Colors.white,
+      color: AppTheme.consoleBackground,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final double minTotalWidth = isFd ? 2200.0 : 1000.0;
@@ -211,26 +202,48 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                     Expanded(
                       child: tab.messages.isEmpty
                           ? Center(
-                              child: Text(
-                                'No communication data yet',
-                                style: GoogleFonts.openSans(
-                                  fontSize: 13,
-                                  color: AppTheme.textMuted,
-                                ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.monitor_outlined,
+                                    size: 32,
+                                    color: AppTheme.textMuted.withValues(alpha: 0.4),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'No communication data yet',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      color: AppTheme.textMuted,
+                                    ),
+                                  ),
+                                ],
                               ),
                             )
-                          : ListView.builder(
-                              controller: _scrollController,
-                              padding: EdgeInsets.zero,
-                              itemCount: tab.messages.length,
-                              itemBuilder: (context, index) {
-                                return MessageWidget(
-                                  message: tab.messages[index],
-                                  displayFormat: tab.displayFormat,
-                                  index: index + 1,
-                                  isEven: index % 2 == 0,
-                                );
+                          : NotificationListener<ScrollNotification>(
+                              onNotification: (ScrollNotification notification) {
+                                if (notification is ScrollUpdateNotification) {
+                                  final metrics = notification.metrics;
+                                  if (metrics.axis == Axis.vertical) {
+                                    tab.autoScroll = metrics.pixels >= metrics.maxScrollExtent - 20;
+                                  }
+                                }
+                                return false;
                               },
+                              child: ListView.builder(
+                                controller: _scrollController,
+                                padding: EdgeInsets.zero,
+                                itemCount: tab.messages.length,
+                                itemBuilder: (context, index) {
+                                  return MessageWidget(
+                                    message: tab.messages[index],
+                                    displayFormat: tab.displayFormat,
+                                    index: index + 1,
+                                    isEven: index % 2 == 0,
+                                  );
+                                },
+                              ),
                             ),
                     ),
                   ],
@@ -258,15 +271,16 @@ class _TabViewWidgetState extends State<TabViewWidget> {
   }
 
   Widget _buildTableHeader() {
-    final style = GoogleFonts.openSans(
-      fontSize: 12,
+    final style = GoogleFonts.inter(
+      fontSize: 10,
       fontWeight: FontWeight.w600,
-      color: AppTheme.textPrimary,
+      color: AppTheme.textSecondary,
+      letterSpacing: 0.3,
     );
     return Container(
       decoration: const BoxDecoration(
-        color: Color(0xFFE5E5E5),
-        border: Border(bottom: BorderSide(color: Color(0xFFCCCCCC))),
+        color: AppTheme.panelHeader,
+        border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
       ),
       child: Row(
         children: [
@@ -293,7 +307,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
       width: width == double.infinity ? null : width,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: const BoxDecoration(
-        border: Border(right: BorderSide(color: Color(0xFFCCCCCC))),
+        border: Border(right: BorderSide(color: AppTheme.borderColor)),
       ),
       alignment: Alignment.centerLeft,
       child: Text(
@@ -316,29 +330,24 @@ class _GroupPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      decoration: AppTheme.panelDecoration,
+      decoration: AppTheme.panelDecorationFlat,
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: const BoxDecoration(
-              color: AppTheme.panelHeader,
-              border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: AppTheme.headerDecoration,
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: 5),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      title,
-                      style: GoogleFonts.openSans(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.textPrimary,
-                      ),
+                  Text(
+                    title,
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textPrimary,
+                      letterSpacing: 0.5,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -358,7 +367,7 @@ class _GroupPanel extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: Padding(padding: const EdgeInsets.all(10), child: child),
+            child: Padding(padding: const EdgeInsets.all(0), child: child),
           ),
         ],
       ),

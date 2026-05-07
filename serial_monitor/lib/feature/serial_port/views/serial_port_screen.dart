@@ -12,12 +12,23 @@ import 'tab_view.dart';
 /// Docklight-style serial monitor screen.
 /// Left pane: Send Sequences (full height)
 /// Right pane: Horizontal tab bar + Terminal/Communication view
-class SerialPortScreen extends StatelessWidget {
+class SerialPortScreen extends StatefulWidget {
   const SerialPortScreen({super.key});
+
+  @override
+  State<SerialPortScreen> createState() => _SerialPortScreenState();
+}
+
+class _SerialPortScreenState extends State<SerialPortScreen> {
+  double _sidebarWidth = 280;
+  static const double _minSidebarWidth = 180;
+  static const double _maxSidebarWidth = 500;
+  bool _isDragging = false;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppTheme.bgDarkest,
       body: SafeArea(
         child: Consumer<PortController>(
           builder: (context, controller, _) {
@@ -27,16 +38,47 @@ class SerialPortScreen extends StatelessWidget {
                 _buildControlStrip(controller),
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.fromLTRB(6, 6, 6, 4),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         // ── Left: Send Sequences ──
                         SizedBox(
-                          width: 280,
+                          width: _sidebarWidth,
                           child: _buildSendSequencesPanel(controller),
                         ),
-                        const SizedBox(width: 12),
+                        // ── Draggable Divider ──
+                        MouseRegion(
+                          cursor: SystemMouseCursors.resizeColumn,
+                          child: GestureDetector(
+                            onHorizontalDragStart: (_) {
+                              setState(() => _isDragging = true);
+                            },
+                            onHorizontalDragUpdate: (details) {
+                              setState(() {
+                                _sidebarWidth = (_sidebarWidth + details.delta.dx)
+                                    .clamp(_minSidebarWidth, _maxSidebarWidth);
+                              });
+                            },
+                            onHorizontalDragEnd: (_) {
+                              setState(() => _isDragging = false);
+                            },
+                            child: Container(
+                              width: 6,
+                              color: Colors.transparent,
+                              child: Center(
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 150),
+                                  width: _isDragging ? 3 : 1,
+                                  height: double.infinity,
+                                  color: _isDragging
+                                      ? AppTheme.primaryColor
+                                      : AppTheme.borderColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                         // ── Right: Tabs + Terminal ──
                         Expanded(
                           child: Column(
@@ -75,29 +117,44 @@ class SerialPortScreen extends StatelessWidget {
         : 'CAN FD';
 
     return Container(
-      height: 44,
+      height: 36,
       decoration: const BoxDecoration(
-        color: Color(0xFFF2F4F7),
-        border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
+        color: AppTheme.bgDark,
+        border: Border(bottom: BorderSide(color: AppTheme.borderColor, width: 1)),
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 10),
         child: Row(
           children: [
-            Icon(
-              controller.isConnected ? Icons.usb : Icons.usb_off,
-              size: 18,
-              color: controller.isConnected
-                  ? AppTheme.receivedColor
-                  : AppTheme.errorColor,
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: controller.isConnected
+                    ? AppTheme.successColor
+                    : AppTheme.errorColor,
+                boxShadow: [
+                  BoxShadow(
+                    color: (controller.isConnected
+                            ? AppTheme.successColor
+                            : AppTheme.errorColor)
+                        .withValues(alpha: 0.5),
+                    blurRadius: 6,
+                  ),
+                ],
+              ),
             ),
             const SizedBox(width: 8),
             Text(
               connectionText,
-              style: GoogleFonts.openSans(
-                fontSize: 12,
-                color: AppTheme.textPrimary,
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: controller.isConnected
+                    ? AppTheme.successColor
+                    : AppTheme.textMuted,
               ),
             ),
             const SizedBox(width: 16),
@@ -122,9 +179,9 @@ class SerialPortScreen extends StatelessWidget {
 
   Widget _buildControlStrip(PortController controller) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: const BoxDecoration(
-        color: AppTheme.bgDark,
+        color: AppTheme.bgMedium,
         border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
       ),
       child: Row(
@@ -147,20 +204,25 @@ class SerialPortScreen extends StatelessWidget {
                     }
                   },
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           SizedBox(
-            height: 34,
+            height: 30,
             child: OutlinedButton.icon(
               onPressed: controller.isConnected
                   ? null
                   : controller.refreshPorts,
-              icon: const Icon(Icons.refresh, size: 16),
-              label: const Text('Refresh'),
+              icon: const Icon(Icons.refresh, size: 14),
+              label: Text('Refresh', style: GoogleFonts.inter(fontSize: 11)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.textSecondary,
+                side: const BorderSide(color: AppTheme.borderColor),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           SizedBox(
-            height: 34,
+            height: 30,
             child: Builder(
               builder: (context) => ElevatedButton.icon(
                 onPressed: controller.isConnecting
@@ -180,12 +242,13 @@ class SerialPortScreen extends StatelessWidget {
                       },
                 icon: Icon(
                   controller.isConnected ? Icons.link_off : Icons.link,
-                  size: 16,
+                  size: 14,
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: controller.isConnected
                       ? AppTheme.errorColor
                       : AppTheme.primaryColor,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
                 ),
                 label: Text(
                   controller.isConnecting
@@ -193,25 +256,26 @@ class SerialPortScreen extends StatelessWidget {
                       : controller.isConnected
                           ? 'Disconnect'
                           : 'Connect',
+                  style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600),
                 ),
               ),
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               controller.statusMessage,
-              style: GoogleFonts.openSans(
-                fontSize: 12,
-                color: AppTheme.textSecondary,
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                color: AppTheme.textMuted,
               ),
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.right,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           _metricChip('TX', controller.totalBytesSent, AppTheme.sentColor),
-          const SizedBox(width: 6),
+          const SizedBox(width: 4),
           _metricChip(
             'RX',
             controller.totalBytesReceived,
@@ -247,7 +311,7 @@ class SerialPortScreen extends StatelessWidget {
                 return Container(
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? AppTheme.selectionBlueSoft
+                        ? AppTheme.selectionBlue
                         : index.isEven
                         ? Colors.white
                         : AppTheme.panelFill,
@@ -255,7 +319,7 @@ class SerialPortScreen extends StatelessWidget {
                       bottom: const BorderSide(color: AppTheme.borderLight),
                       left: isSelected
                           ? const BorderSide(
-                              color: AppTheme.selectionBlue,
+                              color: AppTheme.primaryColor,
                               width: 2,
                             )
                           : BorderSide.none,
@@ -309,8 +373,8 @@ class SerialPortScreen extends StatelessWidget {
                                   width: 100,
                                   child: Text(
                                     row.name,
-                                    style: GoogleFonts.openSans(
-                                      fontSize: 12,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 11,
                                       color: AppTheme.textPrimary,
                                     ),
                                   ),
@@ -322,9 +386,9 @@ class SerialPortScreen extends StatelessWidget {
                                     ),
                                     child: Text(
                                       row.sequencePreview,
-                                      style: GoogleFonts.robotoMono(
-                                        fontSize: 12,
-                                        color: AppTheme.textPrimary,
+                                      style: GoogleFonts.jetBrainsMono(
+                                        fontSize: 11,
+                                        color: AppTheme.primaryColor,
                                       ),
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -356,11 +420,12 @@ class SerialPortScreen extends StatelessWidget {
   }) {
     return SizedBox(
       width: width,
-      height: 34,
+      height: 30,
       child: DropdownButtonFormField<T>(
         initialValue: value,
-        icon: const Icon(Icons.keyboard_arrow_down, size: 16),
-        style: GoogleFonts.openSans(fontSize: 12, color: AppTheme.textPrimary),
+        icon: const Icon(Icons.keyboard_arrow_down, size: 14, color: AppTheme.textMuted),
+        style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textPrimary),
+        dropdownColor: AppTheme.bgElevated,
         decoration: InputDecoration(
           hintText: hint,
           contentPadding: const EdgeInsets.symmetric(
@@ -368,7 +433,7 @@ class SerialPortScreen extends StatelessWidget {
             vertical: 6,
           ),
           filled: true,
-          fillColor: Colors.white,
+          fillColor: AppTheme.bgInput,
         ),
         items: items
             .map(
@@ -385,7 +450,7 @@ class SerialPortScreen extends StatelessWidget {
 
   Widget _tableHeader({required List<_TableColumn> columns}) {
     return Container(
-      height: 40,
+      height: 34,
       decoration: const BoxDecoration(
         color: AppTheme.panelHeader,
         border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
@@ -398,10 +463,11 @@ class SerialPortScreen extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: Text(
                 column.label,
-                style: GoogleFonts.openSans(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textPrimary,
+                style: GoogleFonts.inter(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textSecondary,
+                  letterSpacing: 0.5,
                 ),
               ),
             ),
@@ -419,30 +485,32 @@ class SerialPortScreen extends StatelessWidget {
 
   Widget _metricChip(String label, int value, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: AppTheme.borderColor),
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Text(
         '$label ${_formatMetric(value)}',
-        style: GoogleFonts.robotoMono(fontSize: 11, color: color),
+        style: GoogleFonts.jetBrainsMono(fontSize: 10, fontWeight: FontWeight.w600, color: color),
       ),
     );
   }
 
   Widget _statusCell(String text) {
     return Container(
-      constraints: const BoxConstraints(minWidth: 120),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      margin: const EdgeInsets.only(left: 8),
+      constraints: const BoxConstraints(minWidth: 100),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      margin: const EdgeInsets.only(left: 6),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.bgMedium,
+        borderRadius: BorderRadius.circular(3),
         border: Border.all(color: AppTheme.borderColor),
       ),
       child: Text(
         text,
-        style: GoogleFonts.openSans(fontSize: 11, color: AppTheme.textPrimary),
+        style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w500, color: AppTheme.textSecondary),
       ),
     );
   }
@@ -467,21 +535,21 @@ class SerialPortScreen extends StatelessWidget {
             children: [
               Icon(
                 isSuccess ? Icons.check_circle : Icons.error,
-                color: isSuccess ? Colors.green : AppTheme.errorColor,
+                color: isSuccess ? AppTheme.successColor : AppTheme.errorColor,
               ),
               const SizedBox(width: 10),
               Text(
                 isSuccess ? 'Connection Successful' : 'Connection Failed',
-                style: GoogleFonts.openSans(
-                  color: AppTheme.textPrimary,
-                  fontWeight: FontWeight.bold,
+                style: GoogleFonts.inter(
+                  color: AppTheme.textBright,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
           ),
           content: Text(
             message,
-            style: GoogleFonts.openSans(color: AppTheme.textPrimary),
+            style: GoogleFonts.inter(color: AppTheme.textPrimary),
           ),
           actions: [
             TextButton(
@@ -541,13 +609,13 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
       builder: (context) {
         return AlertDialog(
           backgroundColor: AppTheme.bgCard,
-          title: Text('New Tab CAN ID', style: GoogleFonts.openSans(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+          title: Text('New Tab CAN ID', style: GoogleFonts.inter(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
           content: TextField(
             controller: canIdController,
-            style: GoogleFonts.robotoMono(color: AppTheme.textPrimary),
+            style: GoogleFonts.jetBrainsMono(color: AppTheme.textPrimary),
             decoration: InputDecoration(
               hintText: '00 00 00 01 (Leave empty for all messages)',
-              hintStyle: GoogleFonts.robotoMono(color: AppTheme.textMuted),
+              hintStyle: GoogleFonts.jetBrainsMono(color: AppTheme.textMuted),
               enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: AppTheme.borderColor)),
               focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: AppTheme.primaryColor)),
             ),
@@ -591,7 +659,7 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
     final controller = widget.controller;
 
     return Container(
-      height: 38,
+      height: 34,
       decoration: const BoxDecoration(
         color: AppTheme.bgDark,
         border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
@@ -602,7 +670,7 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
           Expanded(
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.only(left: 6, top: 4),
+              padding: const EdgeInsets.only(left: 4, top: 2),
               itemCount: controller.tabs.length,
               itemBuilder: (context, index) {
                 return _buildTab(controller, index);
@@ -654,22 +722,27 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
       onDoubleTap: () => _startEditing(index, tab.name),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        margin: const EdgeInsets.only(right: 2),
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        height: 34,
-        constraints: const BoxConstraints(minWidth: 90),
+        margin: const EdgeInsets.only(right: 1),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        height: 32,
+        constraints: const BoxConstraints(minWidth: 80),
         decoration: BoxDecoration(
           color: isActive ? AppTheme.bgCard : Colors.transparent,
-          border: isActive ? Border.all(color: AppTheme.borderColor) : null,
+          border: Border(
+            bottom: BorderSide(
+              color: isActive ? AppTheme.primaryColor : Colors.transparent,
+              width: 2,
+            ),
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             // Active indicator dot
             Container(
-              width: 8,
-              height: 8,
-              margin: const EdgeInsets.only(right: 8),
+              width: 6,
+              height: 6,
+              margin: const EdgeInsets.only(right: 6),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: isActive
@@ -683,8 +756,8 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
                 width: 70,
                 child: TextField(
                   controller: _editController,
-                  style: GoogleFonts.openSans(
-                    fontSize: 12,
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
                     color: AppTheme.textPrimary,
                   ),
                   decoration: const InputDecoration(
@@ -701,11 +774,11 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
             else
               Text(
                 tab.name,
-                style: GoogleFonts.openSans(
-                  fontSize: 12,
-                  fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
                   color: isActive
-                      ? AppTheme.primaryColor
+                      ? AppTheme.textBright
                       : AppTheme.textSecondary,
                 ),
               ),
@@ -716,14 +789,14 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 decoration: BoxDecoration(
-                  color: AppTheme.primaryColor.withValues(alpha: 0.15),
+                  color: AppTheme.primaryColor.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   '${tab.messages.length}',
-                  style: GoogleFonts.robotoMono(
+                  style: GoogleFonts.jetBrainsMono(
                     fontSize: 9,
-                    color: AppTheme.primaryColor,
+                    color: AppTheme.primaryLight,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -740,7 +813,7 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
                   padding: const EdgeInsets.all(2),
                   child: Icon(
                     Icons.close,
-                    size: 13,
+                    size: 12,
                     color: isActive
                         ? AppTheme.textSecondary
                         : AppTheme.textMuted,
@@ -789,24 +862,22 @@ class _PanelFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      decoration: AppTheme.panelDecoration,
+      decoration: AppTheme.panelDecorationFlat,
       child: Column(
         children: [
           Container(
-            height: 42,
+            height: 34,
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: const BoxDecoration(
-              color: AppTheme.panelHeader,
-              border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
-            ),
+            decoration: AppTheme.headerDecoration,
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
                 title,
-                style: GoogleFonts.openSans(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textPrimary,
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textSecondary,
+                  letterSpacing: 0.5,
                 ),
               ),
             ),
@@ -814,7 +885,7 @@ class _PanelFrame extends StatelessWidget {
           Expanded(
             child: Container(
               color: AppTheme.bgCard,
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(0),
               child: child,
             ),
           ),
@@ -839,28 +910,26 @@ class _DocklightSendButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = enabled ? AppTheme.textSecondary : AppTheme.borderColor;
-    final textColor = enabled ? Colors.black : AppTheme.textMuted;
-
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: enabled ? onPressed : null,
+        borderRadius: BorderRadius.circular(3),
         child: Container(
-          width: 42,
-          height: 24,
+          width: 40,
+          height: 22,
           decoration: BoxDecoration(
-            color: enabled ? Colors.white : AppTheme.panelFill,
-            border: Border.all(color: borderColor),
+            color: enabled ? AppTheme.primaryColor.withValues(alpha: 0.08) : AppTheme.panelFill,
+            borderRadius: BorderRadius.circular(3),
+            border: Border.all(
+              color: enabled ? AppTheme.primaryColor.withValues(alpha: 0.4) : AppTheme.borderColor,
+            ),
           ),
           alignment: Alignment.center,
-          child: Text(
-            '---->',
-            style: GoogleFonts.robotoMono(
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: textColor,
-            ),
+          child: Icon(
+            Icons.send,
+            size: 12,
+            color: enabled ? AppTheme.primaryColor : AppTheme.textMuted,
           ),
         ),
       ),
@@ -916,7 +985,7 @@ Future<bool?> _showCanConfigDialog(
                           ),
                           child: const Icon(
                             Icons.settings_ethernet,
-                            color: Colors.white,
+                            color: AppTheme.textBright,
                             size: 20,
                           ),
                         ),
@@ -926,7 +995,7 @@ Future<bool?> _showCanConfigDialog(
                           children: [
                             Text(
                               'Edit Connection',
-                              style: GoogleFonts.openSans(
+                              style: GoogleFonts.inter(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
                                 color: AppTheme.textPrimary,
@@ -934,7 +1003,7 @@ Future<bool?> _showCanConfigDialog(
                             ),
                             Text(
                               'CAN Bus Configuration',
-                              style: GoogleFonts.openSans(
+                              style: GoogleFonts.inter(
                                 fontSize: 11,
                                 color: AppTheme.textMuted,
                               ),
@@ -1007,8 +1076,8 @@ Future<bool?> _showCanConfigDialog(
                                         ),
                                         decoration: BoxDecoration(
                                           color: isSelected
-                                              ? AppTheme.selectionBlueSoft
-                                              : Colors.white,
+                                            ? AppTheme.selectionBlueSoft
+                                            : AppTheme.bgInput,
                                           border: Border.all(
                                             color: isSelected
                                                 ? AppTheme.selectionBlue
@@ -1031,7 +1100,7 @@ Future<bool?> _showCanConfigDialog(
                                             const SizedBox(height: 4),
                                             Text(
                                               type.label,
-                                              style: GoogleFonts.openSans(
+                                              style: GoogleFonts.inter(
                                                 fontSize: 12,
                                                 fontWeight: isSelected
                                                     ? FontWeight.w700
@@ -1046,7 +1115,7 @@ Future<bool?> _showCanConfigDialog(
                                               type == CanType.classicCan
                                                   ? 'Standard CAN 2.0A/2.0B'
                                                   : 'Flexible Data Rate',
-                                              style: GoogleFonts.openSans(
+                                              style: GoogleFonts.inter(
                                                 fontSize: 9,
                                                 color: AppTheme.textMuted,
                                               ),
@@ -1093,7 +1162,7 @@ Future<bool?> _showCanConfigDialog(
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Colors.white,
+                                color: AppTheme.bgInput,
                                 border: Border.all(color: AppTheme.borderColor),
                                 borderRadius: BorderRadius.circular(4),
                               ),
@@ -1198,7 +1267,7 @@ Widget _configSectionTitle(String title, String byteLabel) {
         ),
         child: Text(
           byteLabel,
-          style: GoogleFonts.robotoMono(
+          style: GoogleFonts.jetBrainsMono(
             fontSize: 9,
             color: AppTheme.primaryColor,
             fontWeight: FontWeight.w600,
@@ -1218,7 +1287,7 @@ Widget _configDropdown<T>({
   return Container(
     padding: const EdgeInsets.symmetric(horizontal: 12),
     decoration: BoxDecoration(
-      color: Colors.white,
+      color: AppTheme.bgInput,
       borderRadius: BorderRadius.circular(4),
       border: Border.all(color: AppTheme.borderColor),
     ),
@@ -1226,8 +1295,8 @@ Widget _configDropdown<T>({
       child: DropdownButton<T>(
         value: value,
         isExpanded: true,
-        dropdownColor: Colors.white,
-        style: GoogleFonts.openSans(
+        dropdownColor: AppTheme.bgElevated,
+        style: GoogleFonts.inter(
           fontSize: 13,
           color: AppTheme.textPrimary,
         ),
@@ -1268,7 +1337,7 @@ Widget _configCheckbox({
           children: [
             Text(
               label,
-              style: GoogleFonts.openSans(
+              style: GoogleFonts.inter(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 color: enabled ? AppTheme.textPrimary : AppTheme.textMuted,
@@ -1276,7 +1345,7 @@ Widget _configCheckbox({
             ),
             Text(
               subtitle,
-              style: GoogleFonts.openSans(
+              style: GoogleFonts.inter(
                 fontSize: 10,
                 color: AppTheme.textMuted,
               ),
@@ -1395,7 +1464,7 @@ Future<void> _showEditSendSequenceDialog(
                       children: [
                         Text(
                           'Edit Send Sequence',
-                          style: GoogleFonts.openSans(
+                          style: GoogleFonts.inter(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                             color: AppTheme.textPrimary,
@@ -1418,7 +1487,7 @@ Future<void> _showEditSendSequenceDialog(
                               children: [
                                 Text(
                                   'Index',
-                                  style: GoogleFonts.openSans(
+                                  style: GoogleFonts.inter(
                                     fontSize: 13,
                                     color: AppTheme.textPrimary,
                                   ),
@@ -1430,7 +1499,7 @@ Future<void> _showEditSendSequenceDialog(
                                     vertical: 8,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Colors.white,
+                                    color: AppTheme.bgInput,
                                     border: Border.all(
                                       color: AppTheme.borderColor,
                                     ),
@@ -1438,7 +1507,7 @@ Future<void> _showEditSendSequenceDialog(
                                   alignment: Alignment.center,
                                   child: Text(
                                     '$sequenceIndex',
-                                    style: GoogleFonts.robotoMono(
+                                    style: GoogleFonts.jetBrainsMono(
                                       fontSize: 13,
                                       color: AppTheme.textPrimary,
                                     ),
@@ -1449,7 +1518,7 @@ Future<void> _showEditSendSequenceDialog(
                             const SizedBox(height: 18),
                             Text(
                               'Sequence Definition',
-                              style: GoogleFonts.openSans(
+                              style: GoogleFonts.inter(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
                                 color: AppTheme.textPrimary,
@@ -1458,7 +1527,7 @@ Future<void> _showEditSendSequenceDialog(
                             const SizedBox(height: 10),
                             Text(
                               '1 - Name',
-                              style: GoogleFonts.openSans(
+                              style: GoogleFonts.inter(
                                 fontSize: 13,
                                 color: AppTheme.textPrimary,
                               ),
@@ -1466,10 +1535,10 @@ Future<void> _showEditSendSequenceDialog(
                             const SizedBox(height: 6),
                             TextField(
                               controller: nameController,
-                              style: GoogleFonts.openSans(fontSize: 13),
+                              style: GoogleFonts.inter(fontSize: 13),
                               decoration: const InputDecoration(
                                 filled: true,
-                                fillColor: Colors.white,
+                                fillColor: AppTheme.bgInput,
                               ),
                             ),
                             const SizedBox(height: 14),
@@ -1477,7 +1546,7 @@ Future<void> _showEditSendSequenceDialog(
                               children: [
                                 Text(
                                   '2 - Sequence',
-                                  style: GoogleFonts.openSans(
+                                  style: GoogleFonts.inter(
                                     fontSize: 13,
                                     color: AppTheme.textPrimary,
                                   ),
@@ -1485,7 +1554,7 @@ Future<void> _showEditSendSequenceDialog(
                                 const SizedBox(width: 22),
                                 Text(
                                   'Edit Mode',
-                                  style: GoogleFonts.openSans(
+                                  style: GoogleFonts.inter(
                                     fontSize: 13,
                                     color: AppTheme.textPrimary,
                                   ),
@@ -1507,7 +1576,7 @@ Future<void> _showEditSendSequenceDialog(
                                         decoration: BoxDecoration(
                                           color: format == displayFormat
                                               ? AppTheme.selectionBlueSoft
-                                              : Colors.white,
+                                              : AppTheme.bgInput,
                                           border: Border.all(
                                             color: format == displayFormat
                                                 ? AppTheme.selectionBlue
@@ -1518,7 +1587,7 @@ Future<void> _showEditSendSequenceDialog(
                                           _displayFormatDialogLabel(
                                             displayFormat,
                                           ),
-                                          style: GoogleFonts.openSans(
+                                          style: GoogleFonts.inter(
                                             fontSize: 13,
                                             fontWeight: format == displayFormat
                                                 ? FontWeight.w700
@@ -1549,7 +1618,7 @@ Future<void> _showEditSendSequenceDialog(
                                     }
                                     return Text(
                                       'Bytes: $currentBytes / $maxBytes',
-                                      style: GoogleFonts.openSans(
+                                      style: GoogleFonts.inter(
                                         fontSize: 12,
                                         color: currentBytes > maxBytes ? AppTheme.errorColor : AppTheme.textSecondary,
                                       ),
@@ -1565,13 +1634,13 @@ Future<void> _showEditSendSequenceDialog(
                                 controller: sequenceController,
                                 maxLines: null,
                                 expands: true,
-                                style: GoogleFonts.robotoMono(
+                                style: GoogleFonts.jetBrainsMono(
                                   fontSize: 13,
                                   color: AppTheme.textPrimary,
                                 ),
                                 decoration: const InputDecoration(
                                   filled: true,
-                                  fillColor: Colors.white,
+                                  fillColor: AppTheme.bgInput,
                                   alignLabelWithHint: true,
                                 ),
                                 onChanged: (value) =>
@@ -1581,7 +1650,7 @@ Future<void> _showEditSendSequenceDialog(
                             const SizedBox(height: 14),
                             Text(
                               '3 - CAN Message Options',
-                              style: GoogleFonts.openSans(
+                              style: GoogleFonts.inter(
                                 fontSize: 13,
                                 color: AppTheme.textPrimary,
                               ),
@@ -1590,7 +1659,7 @@ Future<void> _showEditSendSequenceDialog(
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Colors.white,
+                                color: AppTheme.bgInput,
                                 border: Border.all(color: AppTheme.borderColor),
                               ),
                               child: Column(
@@ -1604,7 +1673,7 @@ Future<void> _showEditSendSequenceDialog(
                                           children: [
                                             Text(
                                               'Format',
-                                              style: GoogleFonts.openSans(
+                                              style: GoogleFonts.inter(
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.w600,
                                                 color: AppTheme.textPrimary,
@@ -1647,7 +1716,7 @@ Future<void> _showEditSendSequenceDialog(
                                           children: [
                                             Text(
                                               'Type',
-                                              style: GoogleFonts.openSans(
+                                              style: GoogleFonts.inter(
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.w600,
                                                 color: AppTheme.textPrimary,
@@ -1682,7 +1751,7 @@ Future<void> _showEditSendSequenceDialog(
                                           children: [
                                             Text(
                                               'CAN ID (HEX)',
-                                              style: GoogleFonts.openSans(
+                                              style: GoogleFonts.inter(
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.w600,
                                                 color: AppTheme.textPrimary,
@@ -1691,13 +1760,13 @@ Future<void> _showEditSendSequenceDialog(
                                             const SizedBox(height: 6),
                                             TextField(
                                               controller: canIdController,
-                                              style: GoogleFonts.robotoMono(
+                                              style: GoogleFonts.jetBrainsMono(
                                                 fontSize: 13,
                                               ),
                                               decoration: const InputDecoration(
                                                 hintText: '00 00 00 01',
                                                 filled: true,
-                                                fillColor: Colors.white,
+                                                fillColor: AppTheme.bgInput,
                                               ),
                                               onChanged: (value) {
                                                 String clean = value.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '').toUpperCase();
@@ -1734,7 +1803,7 @@ Future<void> _showEditSendSequenceDialog(
                                           children: [
                                             Text(
                                               'Channel',
-                                              style: GoogleFonts.openSans(
+                                              style: GoogleFonts.inter(
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.w600,
                                                 color: AppTheme.textPrimary,
@@ -1768,7 +1837,7 @@ Future<void> _showEditSendSequenceDialog(
                                           children: [
                                             Text(
                                               'Number to send',
-                                              style: GoogleFonts.openSans(
+                                              style: GoogleFonts.inter(
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.w600,
                                                 color: AppTheme.textPrimary,
@@ -1779,13 +1848,13 @@ Future<void> _showEditSendSequenceDialog(
                                               controller: repeatCountController,
                                               keyboardType:
                                                   TextInputType.number,
-                                              style: GoogleFonts.robotoMono(
+                                              style: GoogleFonts.jetBrainsMono(
                                                 fontSize: 13,
                                               ),
                                               decoration: const InputDecoration(
                                                 hintText: '1',
                                                 filled: true,
-                                                fillColor: Colors.white,
+                                                fillColor: AppTheme.bgInput,
                                               ),
                                             ),
                                           ],
@@ -1799,7 +1868,7 @@ Future<void> _showEditSendSequenceDialog(
                                           children: [
                                             Text(
                                               'Send cycle (ms)',
-                                              style: GoogleFonts.openSans(
+                                              style: GoogleFonts.inter(
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.w600,
                                                 color: AppTheme.textPrimary,
@@ -1810,13 +1879,13 @@ Future<void> _showEditSendSequenceDialog(
                                               controller: sendCycleController,
                                               keyboardType:
                                                   TextInputType.number,
-                                              style: GoogleFonts.robotoMono(
+                                              style: GoogleFonts.jetBrainsMono(
                                                 fontSize: 13,
                                               ),
                                               decoration: const InputDecoration(
                                                 hintText: '0',
                                                 filled: true,
-                                                fillColor: Colors.white,
+                                                fillColor: AppTheme.bgInput,
                                               ),
                                             ),
                                           ],
@@ -1843,7 +1912,7 @@ Future<void> _showEditSendSequenceDialog(
                                               ListTileControlAffinity.leading,
                                           title: Text(
                                             'ID Increment',
-                                            style: GoogleFonts.openSans(
+                                            style: GoogleFonts.inter(
                                               fontSize: 12,
                                             ),
                                           ),
@@ -1866,7 +1935,7 @@ Future<void> _showEditSendSequenceDialog(
                                               ListTileControlAffinity.leading,
                                           title: Text(
                                             'Data Increment',
-                                            style: GoogleFonts.openSans(
+                                            style: GoogleFonts.inter(
                                               fontSize: 12,
                                             ),
                                           ),

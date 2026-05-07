@@ -94,21 +94,21 @@ class _SplashScreenState extends State<SplashScreen>
                           return Transform.scale(
                             scale: _pulseAnimation.value,
                             child: Container(
-                              width: 120,
-                              height: 120,
+                              width: 100,
+                              height: 100,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 gradient: const LinearGradient(
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                   colors: [
-                                    Color(0xFF00D9FF),
-                                    Color(0xFF0099CC),
+                                    Color(0xFF2563EB),
+                                    Color(0xFF1D4ED8),
                                   ],
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: const Color(0xFF00D9FF)
+                                    color: const Color(0xFF2563EB)
                                         .withValues(alpha: 0.4),
                                     blurRadius: 30,
                                     spreadRadius: 5,
@@ -117,52 +117,52 @@ class _SplashScreenState extends State<SplashScreen>
                               ),
                               child: const Icon(
                                 Icons.cable_rounded,
-                                size: 60,
+                                size: 48,
                                 color: Colors.white,
                               ),
                             ),
                           );
                         },
                       ),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 28),
                       // App title
                       Text(
                         'RDPMS',
-                        style: GoogleFonts.orbitron(
-                          fontSize: 42,
+                        style: GoogleFonts.inter(
+                          fontSize: 36,
                           fontWeight: FontWeight.w700,
-                          color: const Color(0xFF00D9FF),
+                          color: const Color(0xFF60A5FA),
                           letterSpacing: 8,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       Text(
-                        'Serial Port Monitor',
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 18,
+                        'CAN Bus Analyzer',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
                           fontWeight: FontWeight.w400,
                           color: Colors.white54,
                           letterSpacing: 4,
                         ),
                       ),
-                      const SizedBox(height: 48),
+                      const SizedBox(height: 40),
                       // Loading indicator
                       SizedBox(
-                        width: 200,
+                        width: 180,
                         child: LinearProgressIndicator(
                           backgroundColor:
-                              const Color(0xFF00D9FF).withValues(alpha: 0.15),
+                              const Color(0xFF2563EB).withValues(alpha: 0.15),
                           valueColor: const AlwaysStoppedAnimation<Color>(
-                            Color(0xFF00D9FF),
+                            Color(0xFF60A5FA),
                           ),
                           minHeight: 2,
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       Text(
                         'Initializing...',
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 14,
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
                           color: Colors.white38,
                           letterSpacing: 2,
                         ),

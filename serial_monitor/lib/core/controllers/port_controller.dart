@@ -627,20 +627,20 @@ class PortController extends ChangeNotifier {
   void _handleHeartbeatAck(String port, String status, DateTime? timestamp) {
     _heartbeatMissCount = 0;
     _lastHeartbeatAckAt = timestamp ?? DateTime.now();
-    _statusMessage = 'Connected to $port | Heartbeat OK ($status)';
+    _statusMessage = 'Connected to $port';
     notifyListeners();
   }
 
   void _handleHeartbeatMiss(String port, int missCount) {
     _heartbeatMissCount = missCount;
-    _statusMessage = 'Connected to $port | Heartbeat miss #$missCount';
+    // Hidden from UI
     notifyListeners();
   }
 
   void _handleHeartbeatTimeout(String port) {
     _heartbeatMissCount = 0;
     _lastHeartbeatAckAt = null;
-    _statusMessage = 'Disconnected | Heartbeat timeout on $port';
+    _statusMessage = 'Disconnected from $port (Timeout)';
     notifyListeners();
   }
 

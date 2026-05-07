@@ -21,15 +21,15 @@ class MessageWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isSent = message.direction == MessageDirection.sent;
-    final rowColor = isEven ? Colors.white : const Color(0xFFF7F7F7);
-    final borderColor = const Color(0xFFEEEEEE);
+    final rowColor = isEven ? Colors.white : const Color(0xFFF8FAFC);
+    final borderColor = AppTheme.borderLight;
 
-    final textStyle = GoogleFonts.openSans(
-      fontSize: 12,
+    final textStyle = GoogleFonts.inter(
+      fontSize: 11,
       color: AppTheme.textPrimary,
     );
-    final monoStyle = GoogleFonts.robotoMono(
-      fontSize: 12,
+    final monoStyle = GoogleFonts.jetBrainsMono(
+      fontSize: 11,
       color: AppTheme.textPrimary,
     );
 
@@ -56,36 +56,47 @@ class MessageWidget extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Icon marker
+          // Direction indicator
           Container(
             width: 24,
             alignment: Alignment.center,
             child: Container(
               margin: const EdgeInsets.only(left: 4),
-              width: 10,
-              height: 10,
+              width: 4,
+              height: 16,
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isSent ? Colors.red : Colors.green,
+                borderRadius: BorderRadius.circular(2),
+                color: isSent
+                    ? AppTheme.sentColor.withValues(alpha: 0.7)
+                    : AppTheme.receivedColor.withValues(alpha: 0.7),
               ),
             ),
           ),
-          _cell(idxStr, 60, textStyle),
+          _cell(idxStr, 60, textStyle.copyWith(color: AppTheme.textMuted)),
           _cell(sysTime, 110, textStyle),
           _cell(tStamp, 110, textStyle),
           _cell(ch, 70, textStyle),
-          _cell(dir, 80, textStyle),
-          _cell(fId, 90, textStyle),
+          _cell(
+            dir,
+            80,
+            textStyle.copyWith(
+              color: isSent ? AppTheme.sentColor : AppTheme.receivedColor,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          _cell(fId, 90, monoStyle.copyWith(color: AppTheme.accentOrange)),
           _cell(type, 70, textStyle),
           _cell(format, 80, textStyle),
           _cell(dlc, 60, monoStyle),
           Expanded(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
               alignment: Alignment.centerLeft,
               child: Text(
                 dataStr,
-                style: monoStyle,
+                style: monoStyle.copyWith(
+                  color: isSent ? AppTheme.sentColor : AppTheme.accentCyan,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -99,9 +110,9 @@ class MessageWidget extends StatelessWidget {
   Widget _cell(String text, double width, TextStyle style) {
     return Container(
       width: width,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
       decoration: const BoxDecoration(
-        border: Border(right: BorderSide(color: Color(0xFFEEEEEE))),
+        border: Border(right: BorderSide(color: AppTheme.borderLight)),
       ),
       alignment: Alignment.centerLeft,
       child: Text(
