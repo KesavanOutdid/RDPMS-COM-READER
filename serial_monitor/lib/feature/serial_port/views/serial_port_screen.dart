@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../../core/config/app_constants.dart';
@@ -27,83 +28,131 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.bgDarkest,
-      body: SafeArea(
-        child: Consumer<PortController>(
-          builder: (context, controller, _) {
-            return Column(
-              children: [
-                _buildStatusStrip(controller),
-                _buildControlStrip(controller),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(6, 6, 6, 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // ── Left: Send Sequences ──
-                        SizedBox(
-                          width: _sidebarWidth,
-                          child: _buildSendSequencesPanel(controller),
-                        ),
-                        // ── Draggable Divider ──
-                        MouseRegion(
-                          cursor: SystemMouseCursors.resizeColumn,
-                          child: GestureDetector(
-                            onHorizontalDragStart: (_) {
-                              setState(() => _isDragging = true);
-                            },
-                            onHorizontalDragUpdate: (details) {
-                              setState(() {
-                                _sidebarWidth = (_sidebarWidth + details.delta.dx)
-                                    .clamp(_minSidebarWidth, _maxSidebarWidth);
-                              });
-                            },
-                            onHorizontalDragEnd: (_) {
-                              setState(() => _isDragging = false);
-                            },
-                            child: Container(
-                              width: 6,
-                              color: Colors.transparent,
-                              child: Center(
-                                child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 150),
-                                  width: _isDragging ? 3 : 1,
-                                  height: double.infinity,
-                                  color: _isDragging
-                                      ? AppTheme.primaryColor
-                                      : AppTheme.borderColor,
-                                ),
-                              ),
+    return Consumer<PortController>(
+      builder: (context, controller, _) {
+        // Show error snackbar when new error occurs (#13)
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (controller.lastError != null && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  controller.lastError!,
+                  style: GoogleFonts.inter(fontSize: 12),
+                ),
+                backgroundColor: AppTheme.errorColor,
+                duration: const Duration(seconds: 4),
+                behavior: SnackBarBehavior.floating,
+                action: SnackBarAction(
+                  label: 'DISMISS',
+                  textColor: Colors.white,
+                  onPressed: () {},
+                ),
+              ),
+            );
+            controller.clearLastError();
+          }
+        });
+
+        // Keyboard shortcuts (#9)
+        return CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.keyN, control: true): () {
+              controller.addTab();
+            },
+            const SingleActivator(LogicalKeyboardKey.keyL, control: true): () {
+              controller.clearMessages(controller.activeTabIndex);
+            },
+            const SingleActivator(LogicalKeyboardKey.keyE, control: true): () async {
+              final result = await controller.exportMessages(controller.activeTabIndex);
+              if (result != null && mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(result, style: GoogleFonts.inter(fontSize: 12)),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+          },
+          child: Focus(
+            autofocus: true,
+            child: Scaffold(
+              backgroundColor: AppTheme.bgDarkest,
+              body: SafeArea(
+                child: Column(
+                  children: [
+                    _buildStatusStrip(controller),
+                    _buildControlStrip(controller),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(6, 6, 6, 4),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // ── Left: Send Sequences ──
+                            SizedBox(
+                              width: _sidebarWidth,
+                              child: _buildSendSequencesPanel(controller),
                             ),
-                          ),
-                        ),
-                        // ── Right: Tabs + Terminal ──
-                        Expanded(
-                          child: Column(
-                            children: [
-                              _HorizontalTabBar(controller: controller),
-                              Expanded(
-                                child: KeyedSubtree(
-                                  key: ValueKey(controller.activeTabIndex),
-                                  child: TabViewWidget(
-                                    tabIndex: controller.activeTabIndex,
+                            // ── Draggable Divider ──
+                            MouseRegion(
+                              cursor: SystemMouseCursors.resizeColumn,
+                              child: GestureDetector(
+                                onHorizontalDragStart: (_) {
+                                  setState(() => _isDragging = true);
+                                },
+                                onHorizontalDragUpdate: (details) {
+                                  setState(() {
+                                    _sidebarWidth = (_sidebarWidth + details.delta.dx)
+                                        .clamp(_minSidebarWidth, _maxSidebarWidth);
+                                  });
+                                },
+                                onHorizontalDragEnd: (_) {
+                                  setState(() => _isDragging = false);
+                                },
+                                child: Container(
+                                  width: 6,
+                                  color: Colors.transparent,
+                                  child: Center(
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 150),
+                                      width: _isDragging ? 3 : 1,
+                                      height: double.infinity,
+                                      color: _isDragging
+                                          ? AppTheme.primaryColor
+                                          : AppTheme.borderColor,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+                            // ── Right: Tabs + Terminal ──
+                            Expanded(
+                              child: Column(
+                                children: [
+                                  _HorizontalTabBar(controller: controller),
+                                  Expanded(
+                                    child: KeyedSubtree(
+                                      key: ValueKey(controller.activeTabIndex),
+                                      child: TabViewWidget(
+                                        tabIndex: controller.activeTabIndex,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            );
-          },
-        ),
-      ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -281,6 +330,126 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
             controller.totalBytesReceived,
             AppTheme.receivedColor,
           ),
+          const SizedBox(width: 8),
+          // About button (#19)
+          SizedBox(
+            height: 24,
+            width: 24,
+            child: IconButton(
+              padding: EdgeInsets.zero,
+              iconSize: 14,
+              tooltip: 'About',
+              icon: const Icon(Icons.info_outline, color: AppTheme.textMuted),
+              onPressed: () => _showAboutDialog(context),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAboutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.bgCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: const BorderSide(color: AppTheme.borderColor),
+        ),
+        title: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [AppTheme.primaryColor, AppTheme.primaryDark],
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.cable_rounded, color: Colors.white, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  AppConstants.appName,
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textBright,
+                  ),
+                ),
+                Text(
+                  'Version ${AppConstants.appVersion}',
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    color: AppTheme.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Divider(color: AppTheme.borderLight),
+            const SizedBox(height: 8),
+            Text(
+              'CAN Bus Analyzer & Serial Monitor',
+              style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'A professional-grade CAN bus communication tool for real-time monitoring, '
+              'frame analysis, and data logging.',
+              style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textSecondary, height: 1.5),
+            ),
+            const SizedBox(height: 16),
+            _aboutRow('Protocol', 'CAN 2.0 / CAN FD'),
+            _aboutRow('Keyboard', 'Ctrl+N New Tab • Ctrl+L Clear • Ctrl+E Export'),
+            const SizedBox(height: 8),
+            const Divider(color: AppTheme.borderLight),
+            const SizedBox(height: 4),
+            Text(
+              '© 2026 RDPMS',
+              style: GoogleFonts.inter(fontSize: 10, color: AppTheme.textMuted),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Close', style: GoogleFonts.inter(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _aboutRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(
+              label,
+              style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textPrimary),
+            ),
+          ),
         ],
       ),
     );
@@ -304,6 +473,7 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
           ),
           Expanded(
             child: ListView.builder(
+              key: PageStorageKey('send_seq_${controller.activeTabIndex}'),
               itemCount: rows.length,
               itemBuilder: (context, index) {
                 final row = rows[index];
@@ -648,10 +818,7 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
           ],
         );
       },
-    ).then((val) {
-      canIdController.dispose();
-      return val;
-    });
+    );
   }
 
   @override
@@ -668,10 +835,14 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
         children: [
           // ── Scrollable tab list ──
           Expanded(
-            child: ListView.builder(
+            child: ReorderableListView.builder(
+              buildDefaultDragHandles: false,
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.only(left: 4, top: 2),
               itemCount: controller.tabs.length,
+              onReorder: (oldIndex, newIndex) {
+                controller.reorderTabs(oldIndex, newIndex);
+              },
               itemBuilder: (context, index) {
                 return _buildTab(controller, index);
               },
@@ -717,10 +888,13 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
     final isActive = index == controller.activeTabIndex;
     final isEditing = _editingIndex == index;
 
-    return GestureDetector(
-      onTap: () => controller.setActiveTab(index),
-      onDoubleTap: () => _startEditing(index, tab.name),
-      child: AnimatedContainer(
+    return ReorderableDragStartListener(
+      key: ValueKey(tab.id),
+      index: index,
+      child: GestureDetector(
+        onTap: () => controller.setActiveTab(index),
+        onDoubleTap: () => _startEditing(index, tab.name),
+        child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         margin: const EdgeInsets.only(right: 1),
         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -823,6 +997,7 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
             ],
           ],
         ),
+      ),
       ),
     );
   }
@@ -2018,13 +2193,6 @@ Future<void> _showEditSendSequenceDialog(
       );
     },
   );
-
-  nameController.dispose();
-  sequenceController.dispose();
-  documentationController.dispose();
-  canIdController.dispose();
-  repeatCountController.dispose();
-  sendCycleController.dispose();
 }
 
 String _displayFormatDialogLabel(DisplayFormat format) {

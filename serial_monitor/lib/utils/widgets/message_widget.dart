@@ -46,8 +46,7 @@ class MessageWidget extends StatelessWidget {
     
     final dlc = message.dlc != null ? '0x${message.dlc!.toRadixString(16).toUpperCase().padLeft(2, '0')}' : '-';
     
-    final dataPrefix = displayFormat == DisplayFormat.hex ? 'x| ' : '';
-    final dataStr = '$dataPrefix${message.getFormatted(displayFormat)}';
+    final dataStr = message.getFormatted(displayFormat);
 
     return Container(
       decoration: BoxDecoration(

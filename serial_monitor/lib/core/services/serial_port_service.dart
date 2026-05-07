@@ -53,10 +53,14 @@ class SerialPortService {
 
   static List<String> getAvailablePorts() => sp.SerialPort.availablePorts.toSet().toList();
   static String getPortDescription(String portName) {
+    sp.SerialPort? port;
     try {
-      return sp.SerialPort(portName).description ?? portName;
+      port = sp.SerialPort(portName);
+      return port.description ?? portName;
     } catch (_) {
       return portName;
+    } finally {
+      port?.dispose();
     }
   }
 
@@ -118,7 +122,12 @@ class SerialPortService {
       _readerSubscription = _reader!.stream.listen(
         (Uint8List data) => _onRawBytesReceived(data),
         onError: (err) {
-          onError?.call('USB read error: $err');
+          final errorString = err.toString();
+          if (errorString.contains('errno = 0') || errorString.contains('operation completed successfully')) {
+            onError?.call('Connection to USB device lost.');
+          } else {
+            onError?.call('USB read error: $err');
+          }
           disconnect();
         },
         onDone: () => disconnect(),
@@ -262,20 +271,29 @@ class SerialPortService {
   //  SEND DATA
   // ═══════════════════════════════════════════════════════════════
 
-  void _writeLocalBytes(Uint8List bytes) {
-    if (_port == null || !_port!.isOpen) return;
+  bool _writeLocalBytes(Uint8List bytes) {
+    if (_port == null || !_port!.isOpen) {
+      onError?.call('Port is closed or not available.');
+      return false;
+    }
     try {
       _port!.write(bytes);
+      return true;
     } catch (e) {
-      debugPrint('USB write error: $e');
+      final errorString = e.toString();
+      if (errorString.contains('errno = 0') || errorString.contains('operation completed successfully')) {
+        onError?.call('Connection to USB device lost.');
+      } else {
+        onError?.call('USB write error: $e');
+      }
       disconnect();
+      return false;
     }
   }
 
   bool sendData(Uint8List data) {
     if (!_isConnected) return false;
-    _writeLocalBytes(data);
-    return true;
+    return _writeLocalBytes(data);
   }
 
   /// Send a raw hex message — parses it and writes bytes to USB.
@@ -290,8 +308,7 @@ class SerialPortService {
         onError?.call('Empty message.');
         return false;
       }
-      _writeLocalBytes(bytes);
-      return true;
+      return _writeLocalBytes(bytes);
     } catch (e) {
       onError?.call('Send error: $e');
       return false;
@@ -361,7 +378,7 @@ class SerialPortService {
       channel: channel,
       isExtended: isExtended,
     );
-    _writeLocalBytes(txFrame);
+    if (!_writeLocalBytes(txFrame)) return false;
 
     // Notify UI of the sent frame
     final hexData = paddedData

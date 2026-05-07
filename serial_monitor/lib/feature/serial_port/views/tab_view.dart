@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../../core/config/can_config.dart';
@@ -20,11 +21,14 @@ class TabViewWidget extends StatefulWidget {
 class _TabViewWidgetState extends State<TabViewWidget> {
   final ScrollController _scrollController = ScrollController();
   final ScrollController _horizontalScrollController = ScrollController();
+  final TextEditingController _searchController = TextEditingController();
+  bool _showSearch = false;
 
   @override
   void dispose() {
     _scrollController.dispose();
     _horizontalScrollController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -63,7 +67,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
 
         final tab = controller.tabs[widget.tabIndex];
 
-        if (tab.autoScroll && tab.messages.isNotEmpty) {
+        if (tab.autoScroll && tab.messages.isNotEmpty && !_showSearch) {
           _scrollToBottom();
         }
 
@@ -75,6 +79,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+
                     _buildActionButton(
                       icon: Icons.delete_outline,
                       label: 'Clear',
@@ -89,7 +94,63 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                     ),
                   ],
                 ),
-                child: _buildMessageArea(tab, controller.canConfig.canType == CanType.canFd),
+                child: Column(
+                  children: [
+                    // Search bar
+                    if (_showSearch)
+                      Container(
+                        height: 34,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        decoration: const BoxDecoration(
+                          color: AppTheme.panelHeader,
+                          border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.search, size: 14, color: AppTheme.textMuted),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: TextField(
+                                controller: _searchController,
+                                style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textPrimary),
+                                decoration: InputDecoration(
+                                  hintText: 'Filter by CAN ID, direction, data...',
+                                  hintStyle: GoogleFonts.inter(fontSize: 11, color: AppTheme.textMuted),
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  contentPadding: EdgeInsets.zero,
+                                  isDense: true,
+                                ),
+                                onChanged: (value) {
+                                  controller.setFilterQuery(widget.tabIndex, value);
+                                },
+                              ),
+                            ),
+                            if (_searchController.text.isNotEmpty)
+                              InkWell(
+                                onTap: () {
+                                  _searchController.clear();
+                                  controller.setFilterQuery(widget.tabIndex, '');
+                                },
+                                child: const Icon(Icons.close, size: 14, color: AppTheme.textMuted),
+                              ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '${tab.filteredMessages.length} / ${tab.messages.length}',
+                              style: GoogleFonts.jetBrainsMono(
+                                fontSize: 10,
+                                color: AppTheme.textMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    Expanded(
+                      child: _buildMessageArea(tab, controller.canConfig.canType == CanType.canFd),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -102,6 +163,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
     required IconData icon,
     required String label,
     required VoidCallback onPressed,
+    bool isActive = false,
   }) {
     return Material(
       color: Colors.transparent,
@@ -111,20 +173,23 @@ class _TabViewWidgetState extends State<TabViewWidget> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
+            color: isActive ? AppTheme.primaryColor.withValues(alpha: 0.1) : Colors.transparent,
             borderRadius: BorderRadius.circular(3),
-            border: Border.all(color: AppTheme.borderColor),
+            border: Border.all(
+              color: isActive ? AppTheme.primaryColor.withValues(alpha: 0.3) : AppTheme.borderColor,
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 12, color: AppTheme.textMuted),
+              Icon(icon, size: 12, color: isActive ? AppTheme.primaryColor : AppTheme.textMuted),
               const SizedBox(width: 4),
               Text(
                 label,
                 style: GoogleFonts.inter(
                   fontSize: 10,
-                  color: AppTheme.textSecondary,
-                  fontWeight: FontWeight.w500,
+                  color: isActive ? AppTheme.primaryColor : AppTheme.textSecondary,
+                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
                 ),
               ),
             ],
@@ -174,6 +239,8 @@ class _TabViewWidgetState extends State<TabViewWidget> {
   }
 
   Widget _buildMessageArea(SerialTab tab, bool isFd) {
+    final displayMessages = tab.filteredMessages;
+
     return Container(
       color: AppTheme.consoleBackground,
       child: LayoutBuilder(
@@ -200,19 +267,23 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                   children: [
                     _buildTableHeader(),
                     Expanded(
-                      child: tab.messages.isEmpty
+                      child: displayMessages.isEmpty
                           ? Center(
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(
-                                    Icons.monitor_outlined,
+                                    tab.filterQuery.isNotEmpty
+                                        ? Icons.filter_list_off
+                                        : Icons.monitor_outlined,
                                     size: 32,
                                     color: AppTheme.textMuted.withValues(alpha: 0.4),
                                   ),
                                   const SizedBox(height: 8),
                                   Text(
-                                    'No communication data yet',
+                                    tab.filterQuery.isNotEmpty
+                                        ? 'No matching messages'
+                                        : 'No communication data yet',
                                     style: GoogleFonts.inter(
                                       fontSize: 12,
                                       color: AppTheme.textMuted,
@@ -234,10 +305,10 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                               child: ListView.builder(
                                 controller: _scrollController,
                                 padding: EdgeInsets.zero,
-                                itemCount: tab.messages.length,
+                                itemCount: displayMessages.length,
                                 itemBuilder: (context, index) {
-                                  return MessageWidget(
-                                    message: tab.messages[index],
+                                  return _MessageRowWithContextMenu(
+                                    message: displayMessages[index],
                                     displayFormat: tab.displayFormat,
                                     index: index + 1,
                                     isEven: index % 2 == 0,
@@ -252,7 +323,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
             ),
           );
 
-          if (tab.messages.isEmpty) {
+          if (displayMessages.isEmpty) {
             return content;
           }
 
@@ -315,6 +386,107 @@ class _TabViewWidgetState extends State<TabViewWidget> {
         style: style,
         maxLines: 1,
       ),
+    );
+  }
+}
+
+
+/// Message row with right-click context menu (#10)
+class _MessageRowWithContextMenu extends StatelessWidget {
+  final SerialMessage message;
+  final DisplayFormat displayFormat;
+  final int index;
+  final bool isEven;
+
+  const _MessageRowWithContextMenu({
+    required this.message,
+    required this.displayFormat,
+    required this.index,
+    required this.isEven,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onSecondaryTapDown: (details) {
+        _showContextMenu(context, details.globalPosition);
+      },
+      child: MessageWidget(
+        message: message,
+        displayFormat: displayFormat,
+        index: index,
+        isEven: isEven,
+      ),
+    );
+  }
+
+  void _showContextMenu(BuildContext context, Offset position) {
+    final RenderBox overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(position.dx, position.dy, 0, 0),
+        Offset.zero & overlay.size,
+      ),
+      color: AppTheme.bgCard,
+      items: [
+        PopupMenuItem(
+          value: 'copy_row',
+          height: 32,
+          child: _menuItem(Icons.copy, 'Copy Row'),
+        ),
+        PopupMenuItem(
+          value: 'copy_data',
+          height: 32,
+          child: _menuItem(Icons.content_copy, 'Copy Data'),
+        ),
+        PopupMenuItem(
+          value: 'copy_id',
+          height: 32,
+          child: _menuItem(Icons.tag, 'Copy CAN ID'),
+        ),
+        const PopupMenuDivider(height: 1),
+        PopupMenuItem(
+          value: 'filter_id',
+          height: 32,
+          child: _menuItem(Icons.filter_alt, 'Filter by this ID'),
+        ),
+      ],
+    ).then((value) {
+      if (value == null) return;
+      switch (value) {
+        case 'copy_row':
+          final row = '${message.formattedTime}  ${message.directionLabel}  '
+              '${message.canId ?? "-"}  ${message.getFormatted(displayFormat)}';
+          Clipboard.setData(ClipboardData(text: row));
+          break;
+        case 'copy_data':
+          Clipboard.setData(ClipboardData(text: message.getFormatted(displayFormat)));
+          break;
+        case 'copy_id':
+          Clipboard.setData(ClipboardData(text: message.canId ?? ''));
+          break;
+        case 'filter_id':
+          if (message.canId != null) {
+            final controller = Provider.of<PortController>(context, listen: false);
+            controller.setFilterQuery(
+              controller.activeTabIndex,
+              message.canId!.replaceAll('0x', ''),
+            );
+          }
+          break;
+      }
+    });
+  }
+
+  Widget _menuItem(IconData icon, String label) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: AppTheme.textSecondary),
+        const SizedBox(width: 8),
+        Text(label, style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textPrimary)),
+      ],
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'core/config/app_constants.dart';
 import 'core/controllers/port_controller.dart';
 import 'core/routes/app_routes.dart';
 import 'utils/theme/app_theme.dart';
@@ -27,13 +28,25 @@ class SerialMonitorApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => PortController(),
-      child: MaterialApp(
-        title: 'RDPMS Serial Monitor',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.darkTheme,
-        scrollBehavior: AppScrollBehavior(),
-        initialRoute: AppRoutes.splash,
-        routes: AppRoutes.routes,
+      child: Consumer<PortController>(
+        builder: (context, controller, _) {
+          return MaterialApp(
+            title: controller.windowTitle,
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.darkTheme,
+            scrollBehavior: AppScrollBehavior(),
+            initialRoute: AppRoutes.splash,
+            routes: AppRoutes.routes,
+            builder: (context, child) {
+              // Update the native window title dynamically (#14)
+              return Title(
+                title: controller.windowTitle,
+                color: AppTheme.primaryColor,
+                child: child ?? const SizedBox.shrink(),
+              );
+            },
+          );
+        },
       ),
     );
   }

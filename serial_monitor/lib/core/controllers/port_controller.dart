@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_constants.dart';
@@ -17,6 +19,15 @@ class PortController extends ChangeNotifier {
   List<String> _availablePorts = [];
   DateTime? _lastHeartbeatAckAt;
   int _heartbeatMissCount = 0;
+
+  // Error notification queue
+  final List<String> _errorLog = [];
+  String? _lastError;
+
+  // Auto-reconnect
+  bool _autoReconnect = true;
+  int _reconnectAttempts = 0;
+  static const int _maxReconnectAttempts = 3;
 
   // Tabs
   final List<SerialTab> _tabs = [];
@@ -42,6 +53,21 @@ class PortController extends ChangeNotifier {
   int _totalBytesReceived = 0;
   int get totalBytesSent => _totalBytesSent;
   int get totalBytesReceived => _totalBytesReceived;
+
+  // Error/notification getters
+  String? get lastError => _lastError;
+  List<String> get errorLog => List.unmodifiable(_errorLog);
+  bool get autoReconnect => _autoReconnect;
+
+  void clearLastError() {
+    _lastError = null;
+    notifyListeners();
+  }
+
+  void setAutoReconnect(bool value) {
+    _autoReconnect = value;
+    notifyListeners();
+  }
 
   PortController() {
     // Create initial tab
@@ -177,6 +203,7 @@ class PortController extends ChangeNotifier {
     _tabs.add(SerialTab(name: canId != null && canId.isNotEmpty ? 'Tab $index ($canId)' : 'Tab $index', tabCanId: canId));
     _activeTabIndex = _tabs.length - 1;
     _ensureTrailingPlaceholder(_activeTabIndex);
+    _saveConfig();
     notifyListeners();
   }
 
@@ -189,6 +216,7 @@ class PortController extends ChangeNotifier {
     if (_activeTabIndex >= _tabs.length) {
       _activeTabIndex = _tabs.length - 1;
     }
+    _saveConfig();
     notifyListeners();
   }
 
@@ -203,6 +231,27 @@ class PortController extends ChangeNotifier {
   void renameTab(int index, String name) {
     if (index < 0 || index >= _tabs.length) return;
     _tabs[index].name = name;
+    _saveConfig();
+    notifyListeners();
+  }
+
+  /// Reorder tabs (drag and drop)
+  void reorderTabs(int oldIndex, int newIndex) {
+    if (oldIndex < newIndex) {
+      newIndex -= 1;
+    }
+    final item = _tabs.removeAt(oldIndex);
+    _tabs.insert(newIndex, item);
+
+    if (_activeTabIndex == oldIndex) {
+      _activeTabIndex = newIndex;
+    } else if (oldIndex < _activeTabIndex && newIndex >= _activeTabIndex) {
+      _activeTabIndex -= 1;
+    } else if (oldIndex > _activeTabIndex && newIndex <= _activeTabIndex) {
+      _activeTabIndex += 1;
+    }
+    
+    _saveConfig();
     notifyListeners();
   }
 
@@ -279,6 +328,7 @@ class PortController extends ChangeNotifier {
       sendSequence.dataIncrementEnabled = dataIncrementEnabled;
     }
     _ensureTrailingPlaceholder(tabIndex);
+    _saveConfig();
     notifyListeners();
   }
 
@@ -303,6 +353,7 @@ class PortController extends ChangeNotifier {
     if (tab.selectedSendSequenceIndex >= tab.sendSequences.length) {
       tab.selectedSendSequenceIndex = tab.sendSequences.length - 1;
     }
+    _saveConfig();
     notifyListeners();
   }
 
@@ -603,6 +654,9 @@ class PortController extends ChangeNotifier {
   /// Handle errors from the service
   void _handleError(String error) {
     _statusMessage = 'Error: $error';
+    _lastError = error;
+    _errorLog.add('[${DateTime.now().toString().substring(11, 19)}] $error');
+    if (_errorLog.length > 100) _errorLog.removeAt(0);
     notifyListeners();
   }
 
@@ -642,6 +696,25 @@ class PortController extends ChangeNotifier {
     _lastHeartbeatAckAt = null;
     _statusMessage = 'Disconnected from $port (Timeout)';
     notifyListeners();
+
+    // Auto-reconnect logic
+    if (_autoReconnect && _reconnectAttempts < _maxReconnectAttempts) {
+      _reconnectAttempts++;
+      _statusMessage = 'Reconnecting... (attempt $_reconnectAttempts/$_maxReconnectAttempts)';
+      notifyListeners();
+      Future.delayed(const Duration(seconds: 2), () async {
+        if (!isConnected && _autoReconnect) {
+          final success = await connect();
+          if (success) {
+            _reconnectAttempts = 0;
+          }
+        }
+      });
+    } else if (_reconnectAttempts >= _maxReconnectAttempts) {
+      _statusMessage = 'Disconnected from $port (Timeout) — auto-reconnect failed';
+      _reconnectAttempts = 0;
+      notifyListeners();
+    }
   }
 
   void _handlePortsChanged(List<String> ports) {
@@ -656,15 +729,34 @@ class PortController extends ChangeNotifier {
 
   // ─── PERSISTENCE ──────────────────────────────────
 
+  /// Explicitly save the current config and tabs to SharedPreferences
+  Future<void> saveConfig() async {
+    await _saveConfig();
+  }
+
   /// Save configuration to shared preferences
   Future<void> _saveConfig() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      // Serial config
       await prefs.setString('lastPort', _config.portName);
       await prefs.setInt('lastBaudRate', _config.baudRate);
       await prefs.setInt('lastDataBits', _config.dataBits);
       await prefs.setInt('lastStopBits', _config.stopBits);
       await prefs.setInt('lastParity', _config.parity);
+      // CAN config persistence (#4)
+      await prefs.setInt('canChannel', _canConfig.channel.index);
+      await prefs.setInt('canNominalBaud', _canConfig.nominalBaudRate.index);
+      await prefs.setInt('canType', _canConfig.canType.index);
+      await prefs.setInt('canClassicMode', _canConfig.classicMode.index);
+      await prefs.setInt('canFdDataBaud', _canConfig.fdDataBaud.index);
+      await prefs.setBool('canBrsEnabled', _canConfig.brsEnabled);
+      await prefs.setBool('canNonIso', _canConfig.nonIso);
+
+      // Tabs persistence (#5)
+      final tabsJson = jsonEncode(_tabs.map((t) => t.toJson()).toList());
+      await prefs.setString('savedTabs', tabsJson);
+      await prefs.setInt('activeTabIndex', _activeTabIndex);
     } catch (e) {
       debugPrint('Error saving config: $e');
     }
@@ -674,12 +766,54 @@ class PortController extends ChangeNotifier {
   Future<void> _loadConfig() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      // Serial config
       _config.portName = prefs.getString('lastPort') ?? '';
       _config.baudRate =
           prefs.getInt('lastBaudRate') ?? AppConstants.defaultBaudRate;
       _config.dataBits = prefs.getInt('lastDataBits') ?? 8;
       _config.stopBits = prefs.getInt('lastStopBits') ?? 1;
       _config.parity = prefs.getInt('lastParity') ?? 0;
+      // CAN config persistence (#4)
+      final chIdx = prefs.getInt('canChannel');
+      if (chIdx != null && chIdx < CanChannel.values.length) {
+        _canConfig.channel = CanChannel.values[chIdx];
+      }
+      final nbIdx = prefs.getInt('canNominalBaud');
+      if (nbIdx != null && nbIdx < CanNominalBaudRate.values.length) {
+        _canConfig.nominalBaudRate = CanNominalBaudRate.values[nbIdx];
+      }
+      final ctIdx = prefs.getInt('canType');
+      if (ctIdx != null && ctIdx < CanType.values.length) {
+        _canConfig.canType = CanType.values[ctIdx];
+      }
+      final cmIdx = prefs.getInt('canClassicMode');
+      if (cmIdx != null && cmIdx < ClassicCanMode.values.length) {
+        _canConfig.classicMode = ClassicCanMode.values[cmIdx];
+      }
+      final fdIdx = prefs.getInt('canFdDataBaud');
+      if (fdIdx != null && fdIdx < CanFdDataBaud.values.length) {
+        _canConfig.fdDataBaud = CanFdDataBaud.values[fdIdx];
+      }
+      _canConfig.brsEnabled = prefs.getBool('canBrsEnabled') ?? false;
+      _canConfig.nonIso = prefs.getBool('canNonIso') ?? false;
+
+      // Tabs persistence (#5)
+      final savedTabs = prefs.getString('savedTabs');
+      if (savedTabs != null && savedTabs.isNotEmpty) {
+        final decoded = jsonDecode(savedTabs) as List;
+        if (decoded.isNotEmpty) {
+          _tabs.clear();
+          for (var item in decoded) {
+            _tabs.add(SerialTab.fromJson(item));
+          }
+          for (int i = 0; i < _tabs.length; i++) {
+            _ensureTrailingPlaceholder(i);
+          }
+          final savedIndex = prefs.getInt('activeTabIndex') ?? 0;
+          _activeTabIndex = (savedIndex >= 0 && savedIndex < _tabs.length) ? savedIndex : 0;
+        }
+      }
+
       notifyListeners();
     } catch (e) {
       debugPrint('Error loading config: $e');
@@ -705,6 +839,42 @@ class PortController extends ChangeNotifier {
     if (tab.sendSequences.isEmpty || !tab.sendSequences.last.isPlaceholder) {
       tab.sendSequences.add(SendSequence(name: '', canIdHex: tab.tabCanId ?? ''));
     }
+  }
+
+  // ─── FILTER / SEARCH (#8) ─────────────────────────
+
+  void setFilterQuery(int tabIndex, String query) {
+    if (tabIndex < 0 || tabIndex >= _tabs.length) return;
+    _tabs[tabIndex].filterQuery = query;
+    notifyListeners();
+  }
+
+  // ─── EXPORT (#7) ──────────────────────────────────
+
+  Future<String?> exportMessages(int tabIndex) async {
+    if (tabIndex < 0 || tabIndex >= _tabs.length) return null;
+    final tab = _tabs[tabIndex];
+    if (tab.messages.isEmpty) return 'No messages to export';
+
+    try {
+      final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-').substring(0, 19);
+      final fileName = 'CAN_Log_${tab.name.replaceAll(' ', '_')}_$timestamp.csv';
+      final desktopPath = '${Platform.environment['USERPROFILE']}\\Desktop';
+      final file = File('$desktopPath\\$fileName');
+      await file.writeAsString(tab.exportAsCsv());
+      return 'Exported to Desktop: $fileName';
+    } catch (e) {
+      return 'Export failed: $e';
+    }
+  }
+
+  // ─── WINDOW TITLE (#14) ───────────────────────────
+
+  String get windowTitle {
+    if (isConnected) {
+      return '${AppConstants.appName} — ${_config.portName} Connected';
+    }
+    return '${AppConstants.appName} — Disconnected';
   }
 
   @override

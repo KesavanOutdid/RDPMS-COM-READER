@@ -163,6 +163,38 @@ class SendSequence {
         return sequence.replaceAll(RegExp(r'\s+'), ' ').trim();
     }
   }
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'sequence': sequence,
+    'format': format.index,
+    'documentation': documentation,
+    'canFrameFormat': canFrameFormat.index,
+    'canFrameType': canFrameType.index,
+    'canIdHex': canIdHex,
+    'channel': channel,
+    'repeatCount': repeatCount,
+    'sendCycleMs': sendCycleMs,
+    'idIncrementEnabled': idIncrementEnabled,
+    'dataIncrementEnabled': dataIncrementEnabled,
+  };
+
+  factory SendSequence.fromJson(Map<String, dynamic> json) {
+    return SendSequence(
+      name: json['name'] ?? '',
+      sequence: json['sequence'] ?? '',
+      format: DisplayFormat.values[json['format'] ?? DisplayFormat.hex.index],
+      documentation: json['documentation'] ?? '',
+      canFrameFormat: CanFrameFormat.values[json['canFrameFormat'] ?? CanFrameFormat.standard.index],
+      canFrameType: CanFrameType.values[json['canFrameType'] ?? CanFrameType.data.index],
+      canIdHex: json['canIdHex'] ?? '',
+      channel: json['channel'] ?? 1,
+      repeatCount: json['repeatCount'] ?? 1,
+      sendCycleMs: json['sendCycleMs'] ?? 0,
+      idIncrementEnabled: json['idIncrementEnabled'] ?? false,
+      dataIncrementEnabled: json['dataIncrementEnabled'] ?? false,
+    );
+  }
 }
 
 /// A single serial message with timestamp and raw data
@@ -229,6 +261,7 @@ class SerialMessage {
 
 /// Individual tab data
 class SerialTab {
+  final String id;
   String name;
   String? tabCanId;
   final List<SerialMessage> messages;
@@ -240,7 +273,11 @@ class SerialTab {
   String pendingInput;
   int selectedSendSequenceIndex;
 
+  /// Search/filter query for message table
+  String filterQuery;
+
   SerialTab({
+    String? id,
     required this.name,
     this.tabCanId,
     List<SerialMessage>? messages,
@@ -251,11 +288,39 @@ class SerialTab {
     this.lineEnding = 'CR+LF',
     this.pendingInput = '',
     this.selectedSendSequenceIndex = 0,
-  }) : messages = messages ?? [],
+    this.filterQuery = '',
+  }) : id = id ?? DateTime.now().microsecondsSinceEpoch.toString() + name,
+       messages = messages ?? [],
        sendSequences = sendSequences ?? [SendSequence(name: tabCanId != null && tabCanId.isNotEmpty ? 'Msg ($tabCanId)' : 'message 1', canIdHex: tabCanId ?? '')];
 
-  /// Add a message to this tab
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'tabCanId': tabCanId,
+    'sendSequences': sendSequences.where((s) => !s.isPlaceholder).map((s) => s.toJson()).toList(),
+    'displayFormat': displayFormat.index,
+    'sendFormat': sendFormat.index,
+  };
+
+  factory SerialTab.fromJson(Map<String, dynamic> json) {
+    final list = (json['sendSequences'] as List<dynamic>?) ?? [];
+    final sequences = list.map((item) => SendSequence.fromJson(item)).toList();
+    
+    return SerialTab(
+      id: json['id'],
+      name: json['name'] ?? 'Tab',
+      tabCanId: json['tabCanId'],
+      sendSequences: sequences.isNotEmpty ? sequences : null,
+      displayFormat: DisplayFormat.values[json['displayFormat'] ?? DisplayFormat.hex.index],
+      sendFormat: DisplayFormat.values[json['sendFormat'] ?? DisplayFormat.hex.index],
+    );
+  }
+
+  /// Add a message, enforcing the max cap (evicts oldest when full).
   void addMessage(SerialMessage message) {
+    if (messages.length >= 5000) {
+      messages.removeRange(0, 500); // Remove oldest 500 in batch for perf
+    }
     messages.add(message);
   }
 
@@ -263,4 +328,37 @@ class SerialTab {
   void clearMessages() {
     messages.clear();
   }
+
+  /// Get filtered messages based on filterQuery
+  List<SerialMessage> get filteredMessages {
+    if (filterQuery.isEmpty) return messages;
+    final q = filterQuery.toLowerCase();
+    return messages.where((m) {
+      return (m.canId?.toLowerCase().contains(q) ?? false) ||
+          m.directionLabel.toLowerCase().contains(q) ||
+          m.getFormatted(displayFormat).toLowerCase().contains(q) ||
+          (m.type?.toLowerCase().contains(q) ?? false);
+    }).toList();
+  }
+
+  /// Export messages as CSV string
+  String exportAsCsv() {
+    final buf = StringBuffer();
+    buf.writeln('Index,System Time,Time Stamp,Channel,Direction,Frame ID,Type,Format,DLC,Data');
+    for (int i = 0; i < messages.length; i++) {
+      final m = messages[i];
+      buf.writeln('${i + 1},'
+          '${m.formattedTime},'
+          '${m.timeStampHex ?? "-"},'
+          '${m.channel != null ? "ch${m.channel}" : "-"},'
+          '${m.directionLabel},'
+          '${m.canId ?? "-"},'
+          '${m.type ?? "-"},'
+          '${m.canFormat ?? "-"},'
+          '${m.dlc ?? "-"},'
+          '"${m.getFormatted(DisplayFormat.hex)}"');
+    }
+    return buf.toString();
+  }
 }
+

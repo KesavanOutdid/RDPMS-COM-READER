@@ -8,7 +8,7 @@ class AppConstants {
 
   // Tab Limits
   static const int maxTabs = 20;
-  static const int maxMessagesPerTab = 1000;
+  static const int maxMessagesPerTab = 5000;
 
   // Default Port Settings
   static const int defaultBaudRate = 115200;
@@ -66,6 +66,6 @@ class AppConstants {
   static const double minTabWidth = 120.0;
   static const double tabHeight = 36.0;
 
-  // Splash Screen Duration
-  static const Duration splashDuration = Duration(seconds: 2);
+  // Splash Screen Duration — fast for desktop tools
+  static const Duration splashDuration = Duration(milliseconds: 800);
 }
