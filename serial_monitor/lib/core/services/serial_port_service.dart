@@ -202,6 +202,9 @@ class SerialPortService {
   // ═══════════════════════════════════════════════════════════════
 
   void _onRawBytesReceived(Uint8List data) {
+    // Forward raw bytes to any listener (e.g. firmware upload OK detection)
+    onDataReceived?.call(data);
+
     _frameParser.addBytes(data);
     final frames = _frameParser.parseAll();
 

@@ -9,6 +9,7 @@ import '../../../core/config/models.dart';
 import '../../../core/controllers/port_controller.dart';
 import '../../../utils/theme/app_theme.dart';
 import 'tab_view.dart';
+import '../../firmware_upload/views/firmware_upload_dialog.dart';
 
 /// Docklight-style serial monitor screen.
 /// Left pane: Send Sequences (full height)
@@ -306,6 +307,36 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
                           ? 'Disconnect'
                           : 'Connect',
                   style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          SizedBox(
+            height: 30,
+            child: Builder(
+              builder: (context) => OutlinedButton.icon(
+                onPressed: controller.isConnected
+                    ? () => showDialog(
+                          context: context,
+                          barrierDismissible: false,
+                          builder: (_) => FirmwareUploadDialog(
+                            serialService: controller.service,
+                            isFD: controller.canConfig.canType == CanType.canFd,
+                            channel: controller.canConfig.channel.value,
+                          ),
+                        )
+                    : null,
+                icon: const Icon(Icons.memory_rounded, size: 14),
+                label: Text('Firmware', style: GoogleFonts.inter(fontSize: 11)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.accentOrange,
+                  side: BorderSide(
+                    color: controller.isConnected
+                        ? AppTheme.accentOrange.withValues(alpha: 0.5)
+                        : AppTheme.borderColor,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
                 ),
               ),
             ),

@@ -34,6 +34,7 @@ class PortController extends ChangeNotifier {
   int _activeTabIndex = 0;
 
   // Getters
+  SerialPortService get service => _service;
   SerialPortConfig get config => _config;
   CanConfig get canConfig => _canConfig;
   bool get isConnected => _service.isConnected;
@@ -75,7 +76,8 @@ class PortController extends ChangeNotifier {
     _ensureTrailingPlaceholder(0);
 
     // Set up callbacks
-    _service.onDataReceived = _handleDataReceived;
+    // Note: onDataReceived is intentionally NOT set here — it is reserved
+    // for temporary use by firmware upload (OK response detection).
     _service.onCanFrameRx = _handleCanFrameRx;
     _service.onCanFrameTx = _handleCanFrameTx;
     _service.onError = _handleError;
