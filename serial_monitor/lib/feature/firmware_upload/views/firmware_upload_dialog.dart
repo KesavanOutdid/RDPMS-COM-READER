@@ -224,84 +224,25 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      child: Container(
-        width: 780,
-        constraints: const BoxConstraints(maxHeight: 850),
-        decoration: BoxDecoration(
-          color: AppTheme.bgCard,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.borderColor),
-          boxShadow: const [
-            BoxShadow(color: Color(0x30000000), blurRadius: 40, offset: Offset(0, 16)),
-          ],
+    return Scaffold(
+      backgroundColor: AppTheme.bgDarkest,
+      appBar: AppBar(
+        backgroundColor: AppTheme.panelHeader,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: AppTheme.textPrimary),
+          onPressed: () => Navigator.of(context).pop(),
         ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildHeader(),
-              const Divider(height: 1, color: AppTheme.borderColor),
-              _buildFileSection(),
-              _buildConfigurationPanel(),
-              if (_firmwareFile != null) ...[
-                const Divider(height: 1, color: AppTheme.borderLight),
-                _buildInfoCards(),
-              ],
-              if (_isUploading || _isComplete || _log.isNotEmpty) ...[
-                const Divider(height: 1, color: AppTheme.borderLight),
-                _buildProgressSection(),
-              ],
-              if (_log.isNotEmpty) ...[
-                const Divider(height: 1, color: AppTheme.borderLight),
-                _buildLogSection(),
-              ],
-              const Divider(height: 1, color: AppTheme.borderColor),
-              _buildFooter(),
-            ],
+        title: Text(
+          'Firmware Upload',
+          style: GoogleFonts.inter(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.textBright,
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      decoration: const BoxDecoration(
-        color: AppTheme.panelHeader,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 36, height: 36,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft, end: Alignment.bottomRight,
-                colors: [AppTheme.primaryColor, AppTheme.primaryDark],
-              ),
-              borderRadius: BorderRadius.circular(8),
-              boxShadow: [BoxShadow(color: AppTheme.primaryColor.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 2))],
-            ),
-            child: const Icon(Icons.memory_rounded, color: Colors.white, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Firmware Upload', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.textBright, letterSpacing: -0.2)),
-                const SizedBox(height: 2),
-                Text(
-                  'Upload binary firmware via ${widget.isFD ? "CAN FD" : "Classic CAN"}',
-                  style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textMuted),
-                ),
-              ],
-            ),
-          ),
-          if (_isUploading)
+        actions: [
+          if (_isUploading) ...[
             AnimatedBuilder(
               animation: _pulseController,
               builder: (_, __) => Container(
@@ -309,70 +250,141 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: AppTheme.warningColor.withValues(alpha: 0.5 + _pulseController.value * 0.5),
-                  boxShadow: [BoxShadow(color: AppTheme.warningColor.withValues(alpha: 0.3 + _pulseController.value * 0.3), blurRadius: 8)],
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.warningColor.withValues(alpha: 0.3 + _pulseController.value * 0.3),
+                      blurRadius: 8,
+                    )
+                  ],
                 ),
               ),
-            )
-          else if (_isComplete)
+            ),
+            const SizedBox(width: 16),
+          ] else if (_isComplete) ...[
             Container(
               width: 8, height: 8,
               decoration: BoxDecoration(
-                shape: BoxShape.circle, color: AppTheme.successColor,
-                boxShadow: [BoxShadow(color: AppTheme.successColor.withValues(alpha: 0.5), blurRadius: 8)],
+                shape: BoxShape.circle,
+                color: AppTheme.successColor,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppTheme.successColor.withValues(alpha: 0.5),
+                    blurRadius: 8,
+                  )
+                ],
               ),
             ),
+            const SizedBox(width: 16),
+          ],
         ],
       ),
-    );
-  }
-
-  Widget _buildFileSection() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-      child: Material(
-        color: AppTheme.bgInput.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          onTap: _isUploading ? null : _pickFile,
-          borderRadius: BorderRadius.circular(10),
-          hoverColor: AppTheme.primaryColor.withValues(alpha: 0.05),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppTheme.borderColor),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Column(
-              children: [
-                Icon(
-                  _firmwareFile != null ? Icons.check_circle_outline_rounded : Icons.cloud_upload_outlined,
-                  size: 36,
-                  color: _firmwareFile != null ? AppTheme.successColor : AppTheme.primaryColor.withValues(alpha: 0.8),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Left Column: Control/Configuration Panel
+                    Expanded(
+                      flex: 4,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _buildFileSection(),
+                                  const SizedBox(height: 15),
+                                  _buildConfigurationPanel(),
+                                  if (_firmwareFile != null) ...[
+                                    const SizedBox(height: 15),
+                                    _buildInfoCards(),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                          if (_isUploading || _isComplete || _log.isNotEmpty) ...[
+                            const SizedBox(height: 15),
+                            _buildProgressSection(),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+                    // Right Column: Transfer Log
+                    Expanded(
+                      flex: 4,
+                      child: _buildLogSection(),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  _selectedFilePath != null ? _selectedFilePath!.split(RegExp(r'[/\\]')).last : 'Click to browse firmware binary',
-                  style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: _selectedFilePath != null ? AppTheme.textPrimary : AppTheme.textSecondary),
-                  textAlign: TextAlign.center,
-                ),
-                if (_selectedFilePath == null) ...[
-                  const SizedBox(height: 6),
-                  Text('Supports .bin files for CAN protocol upload', style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textMuted)),
-                ]
-              ],
-            ),
+              ),
+              const SizedBox(height: 15),
+              const Divider(height: 1, color: AppTheme.borderColor),
+              const SizedBox(height: 15),
+              _buildFooterRow(),
+            ],
           ),
         ),
       ),
     );
   }
 
-  // ── Configuration Panel ──
+  Widget _buildFileSection() {
+    return Material(
+      color: AppTheme.bgInput.withValues(alpha: 0.4),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: _isUploading ? null : _pickFile,
+        borderRadius: BorderRadius.circular(10),
+        hoverColor: AppTheme.primaryColor.withValues(alpha: 0.05),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+          decoration: BoxDecoration(
+            border: Border.all(color: AppTheme.borderColor),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Column(
+            children: [
+              Icon(
+                _firmwareFile != null ? Icons.check_circle_outline_rounded : Icons.cloud_upload_outlined,
+                size: 36,
+                color: _firmwareFile != null ? AppTheme.successColor : AppTheme.primaryColor.withValues(alpha: 0.8),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _selectedFilePath != null ? _selectedFilePath!.split(RegExp(r'[/\\]')).last : 'Click to browse firmware binary',
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: _selectedFilePath != null ? AppTheme.textPrimary : AppTheme.textSecondary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              if (_selectedFilePath == null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Supports .bin files for CAN protocol upload',
+                  style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textMuted),
+                ),
+              ]
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildConfigurationPanel() {
     return Container(
-      margin: const EdgeInsets.fromLTRB(20, 4, 20, 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppTheme.bgInput.withValues(alpha: 0.5),
@@ -387,14 +399,22 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Target CAN ID', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textSecondary)),
+                Text(
+                  'Target CAN ID',
+                  style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
+                ),
                 const SizedBox(height: 8),
                 SizedBox(
                   height: 38,
                   child: TextField(
                     controller: _canIdController,
                     enabled: !_isUploading,
-                    style: GoogleFonts.jetBrainsMono(fontSize: 15, letterSpacing: 1.0, fontWeight: FontWeight.w500, color: AppTheme.textPrimary),
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 15,
+                      letterSpacing: 1.0,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.textPrimary,
+                    ),
                     decoration: InputDecoration(
                       hintText: '00 00 00 01',
                       hintStyle: GoogleFonts.jetBrainsMono(fontSize: 15, letterSpacing: 1.0, color: AppTheme.textMuted),
@@ -436,7 +456,10 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Inter-frame Delay', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textSecondary)),
+                Text(
+                  'Inter-frame Delay',
+                  style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
+                ),
                 const SizedBox(height: 8),
                 SizedBox(
                   height: 38,
@@ -473,7 +496,10 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Protocol Options', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textSecondary)),
+                Text(
+                  'Protocol Options',
+                  style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
+                ),
                 const SizedBox(height: 8),
                 SizedBox(
                   height: 38,
@@ -482,9 +508,17 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
                     alignment: Alignment.centerLeft,
                     child: Row(
                       children: [
-                        _buildCheckbox('Header CRC', _sendCrcInHeader, (val) => setState(() => _sendCrcInHeader = val ?? true)),
+                        _buildCheckbox(
+                          'Header CRC',
+                          _sendCrcInHeader,
+                          (val) => setState(() => _sendCrcInHeader = val ?? true),
+                        ),
                         const SizedBox(width: 12),
-                        _buildCheckbox('Data CRC', _sendCrcInData, (val) => setState(() => _sendCrcInData = val ?? true)),
+                        _buildCheckbox(
+                          'Data CRC',
+                          _sendCrcInData,
+                          (val) => setState(() => _sendCrcInData = val ?? true),
+                        ),
                       ],
                     ),
                   ),
@@ -525,19 +559,26 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
 
   Widget _buildInfoCards() {
     final fw = _firmwareFile!;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-      child: Row(
-        children: [
-          _infoCard(icon: Icons.straighten_rounded, label: 'File Size', value: _formatBytes(fw.fileSize), color: AppTheme.primaryColor),
-          const SizedBox(width: 10),
-          _infoCard(icon: Icons.view_agenda_rounded, label: 'Frames', value: '${fw.frameCount}', color: AppTheme.accentCyan),
-          const SizedBox(width: 10),
-          _infoCard(icon: Icons.verified_rounded, label: 'CRC-16', value: '0x${fw.fileCrc.toRadixString(16).toUpperCase().padLeft(4, '0')}', color: AppTheme.accentOrange),
-          const SizedBox(width: 10),
-          _infoCard(icon: Icons.data_array_rounded, label: 'Chunk', value: '60 B', color: AppTheme.textSecondary),
-        ],
-      ),
+    return Row(
+      children: [
+        _infoCard(
+          icon: Icons.straighten_rounded,
+          label: 'File Size',
+          value: _formatBytes(fw.fileSize),
+          color: AppTheme.primaryColor,
+        ),
+        const SizedBox(width: 10),
+        _infoCard(icon: Icons.view_agenda_rounded, label: 'Frames', value: '${fw.frameCount}', color: AppTheme.accentCyan),
+        const SizedBox(width: 10),
+        _infoCard(
+          icon: Icons.verified_rounded,
+          label: 'CRC-16',
+          value: '0x${fw.fileCrc.toRadixString(16).toUpperCase().padLeft(4, '0')}',
+          color: AppTheme.accentOrange,
+        ),
+        const SizedBox(width: 10),
+        _infoCard(icon: Icons.data_array_rounded, label: 'Chunk', value: '60 B', color: AppTheme.textSecondary),
+      ],
     );
   }
 
@@ -546,16 +587,23 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(8),
+          color: color.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(8),
           border: Border.all(color: color.withValues(alpha: 0.15)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              Icon(icon, size: 13, color: color), const SizedBox(width: 5),
-              Text(label, style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w500, color: AppTheme.textMuted, letterSpacing: 0.3)),
-            ]),
+            Row(
+              children: [
+                Icon(icon, size: 13, color: color),
+                const SizedBox(width: 5),
+                Text(
+                  label,
+                  style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w500, color: AppTheme.textMuted, letterSpacing: 0.3),
+                ),
+              ],
+            ),
             const SizedBox(height: 4),
             Text(value, style: GoogleFonts.jetBrainsMono(fontSize: 13, fontWeight: FontWeight.w700, color: color)),
           ],
@@ -570,45 +618,63 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
     switch (_status) {
       case UploadStatus.sendingHeader:
       case UploadStatus.waitingHeaderAck:
-        statusLabel = 'Sending header...'; statusColor = AppTheme.warningColor; break;
+        statusLabel = 'Sending header...';
+        statusColor = AppTheme.warningColor;
+        break;
       case UploadStatus.sendingFrame:
       case UploadStatus.waitingFrameAck:
-        statusLabel = 'Frame $_currentFrame / $_totalFrames'; statusColor = AppTheme.primaryColor; break;
+        statusLabel = 'Frame $_currentFrame / $_totalFrames';
+        statusColor = AppTheme.primaryColor;
+        break;
       case UploadStatus.complete:
-        statusLabel = 'Upload complete!'; statusColor = AppTheme.successColor; break;
+        statusLabel = 'Upload complete!';
+        statusColor = AppTheme.successColor;
+        break;
       case UploadStatus.error:
-        statusLabel = 'Upload failed'; statusColor = AppTheme.errorColor; break;
+        statusLabel = 'Upload failed';
+        statusColor = AppTheme.errorColor;
+        break;
       case UploadStatus.cancelled:
-        statusLabel = 'Upload cancelled'; statusColor = AppTheme.warningColor; break;
+        statusLabel = 'Upload cancelled';
+        statusColor = AppTheme.warningColor;
+        break;
       case UploadStatus.idle:
-        statusLabel = 'Ready'; statusColor = AppTheme.textMuted; break;
+        statusLabel = 'Ready';
+        statusColor = AppTheme.textMuted;
+        break;
     }
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
             Text(statusLabel, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: statusColor)),
             const Spacer(),
-            Text('${(_progress * 100).toStringAsFixed(0)}%', style: GoogleFonts.jetBrainsMono(fontSize: 12, fontWeight: FontWeight.w700, color: statusColor)),
-          ]),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(value: _progress, minHeight: 6, backgroundColor: AppTheme.bgDark, valueColor: AlwaysStoppedAnimation<Color>(statusColor)),
+            Text(
+              '${(_progress * 100).toStringAsFixed(0)}%',
+              style: GoogleFonts.jetBrainsMono(fontSize: 12, fontWeight: FontWeight.w700, color: statusColor),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: _progress,
+            minHeight: 6,
+            backgroundColor: AppTheme.bgDark,
+            valueColor: AlwaysStoppedAnimation<Color>(statusColor),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   Widget _buildLogSection() {
     return Container(
-      height: 320,
-      margin: const EdgeInsets.fromLTRB(20, 0, 20, 14),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B), borderRadius: BorderRadius.circular(8),
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: const Color(0xFF334155)),
       ),
       child: Column(
@@ -621,33 +687,54 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
               borderRadius: BorderRadius.vertical(top: Radius.circular(7)),
               border: Border(bottom: BorderSide(color: Color(0xFF334155))),
             ),
-            child: Row(children: [
-              const Icon(Icons.terminal_rounded, size: 12, color: Color(0xFF94A3B8)),
-              const SizedBox(width: 6),
-              Text('Transfer Log', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: const Color(0xFF94A3B8), letterSpacing: 0.5)),
-              const Spacer(),
-              Text('${_log.length} entries', style: GoogleFonts.jetBrainsMono(fontSize: 9, color: const Color(0xFF64748B))),
-            ]),
+            child: Row(
+              children: [
+                const Icon(Icons.terminal_rounded, size: 12, color: Color(0xFF94A3B8)),
+                const SizedBox(width: 6),
+                Text(
+                  'Transfer Log',
+                  style: GoogleFonts.inter(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF94A3B8),
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const Spacer(),
+                Text('${_log.length} entries', style: GoogleFonts.jetBrainsMono(fontSize: 9, color: const Color(0xFF64748B))),
+                const SizedBox(width: 10),
+                InkWell(
+                  onTap: () => setState(() => _log.clear()),
+                  child: const Icon(Icons.delete_outline, size: 14, color: Color(0xFFEF4444)),
+                ),
+              ],
+            ),
           ),
           Expanded(
-            child: ListView.builder(
+            child: Scrollbar(
               controller: _logScrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              itemCount: _log.length,
-              itemBuilder: (context, index) {
-                final entry = _log[index];
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 1),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(entry.timestamp, style: GoogleFonts.jetBrainsMono(fontSize: 10, color: const Color(0xFF64748B))),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(entry.message, style: GoogleFonts.jetBrainsMono(fontSize: 10, color: entry.color))),
-                    ],
-                  ),
-                );
-              },
+              thumbVisibility: true,
+              child: ListView.builder(
+                controller: _logScrollController,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                itemCount: _log.length,
+                itemBuilder: (context, index) {
+                  final entry = _log[index];
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 1),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(entry.timestamp, style: GoogleFonts.jetBrainsMono(fontSize: 11, color: const Color(0xFF64748B))),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(entry.message, style: GoogleFonts.jetBrainsMono(fontSize: 11, color: entry.color)),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ],
@@ -655,68 +742,69 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
     );
   }
 
-  Widget _buildFooter() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      decoration: const BoxDecoration(
-        color: AppTheme.panelHeader,
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
-      ),
-      child: Row(
-        children: [
-          if (_firmwareFile != null && !_isUploading && !_isComplete)
-            Text('Ready to upload ${_firmwareFile!.frameCount} frames', style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textMuted)),
-          if (_isUploading)
-            Text('Do not disconnect during upload', style: GoogleFonts.inter(fontSize: 11, color: AppTheme.warningColor, fontWeight: FontWeight.w500)),
-          const Spacer(),
-          if (_isUploading)
-            SizedBox(
-              height: 34,
-              child: OutlinedButton.icon(
-                onPressed: _cancelUpload,
-                icon: const Icon(Icons.stop_circle_outlined, size: 14),
-                label: Text('Cancel', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.errorColor,
-                  side: BorderSide(color: AppTheme.errorColor.withValues(alpha: 0.4)),
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                ),
-              ),
-            )
-          else ...[
-            SizedBox(
-              height: 34,
-              child: OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.textSecondary,
-                  side: const BorderSide(color: AppTheme.borderColor),
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                ),
-                child: Text('Close', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+  Widget _buildFooterRow() {
+    return Row(
+      children: [
+        if (_firmwareFile != null && !_isUploading && !_isComplete)
+          Text(
+            'Ready to upload ${_firmwareFile!.frameCount} frames',
+            style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textMuted),
+          ),
+        if (_isUploading)
+          Text(
+            'Do not disconnect during upload',
+            style: GoogleFonts.inter(fontSize: 12, color: AppTheme.warningColor, fontWeight: FontWeight.w500),
+          ),
+        const Spacer(),
+        if (_isUploading)
+          SizedBox(
+            height: 36,
+            child: OutlinedButton.icon(
+              onPressed: _cancelUpload,
+              icon: const Icon(Icons.stop_circle_outlined, size: 16),
+              label: Text('Cancel', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.errorColor,
+                side: BorderSide(color: AppTheme.errorColor.withValues(alpha: 0.4)),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
               ),
             ),
-            const SizedBox(width: 10),
-            SizedBox(
-              height: 34,
-              child: ElevatedButton.icon(
-                onPressed: _firmwareFile != null && !_isUploading ? _startUpload : null,
-                icon: const Icon(Icons.upload_rounded, size: 16),
-                label: Text('Upload', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryColor, foregroundColor: Colors.white,
-                  disabledBackgroundColor: AppTheme.primaryColor.withValues(alpha: 0.3),
-                  disabledForegroundColor: Colors.white54, elevation: 0,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                ),
+          )
+        else ...[
+          SizedBox(
+            height: 36,
+            child: OutlinedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.textSecondary,
+                side: const BorderSide(color: AppTheme.borderColor),
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+              ),
+              child: Text('Close', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            height: 36,
+            child: ElevatedButton.icon(
+              onPressed: _firmwareFile != null && !_isUploading ? _startUpload : null,
+              icon: const Icon(Icons.upload_rounded, size: 16),
+              label: Text('Upload', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryColor,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: AppTheme.primaryColor.withValues(alpha: 0.3),
+                disabledForegroundColor: Colors.white54,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
               ),
             ),
-          ],
+          ),
         ],
-      ),
+      ],
     );
   }
 

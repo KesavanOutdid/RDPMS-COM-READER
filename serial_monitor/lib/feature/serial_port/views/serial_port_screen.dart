@@ -10,6 +10,7 @@ import '../../../core/controllers/port_controller.dart';
 import '../../../utils/theme/app_theme.dart';
 import 'tab_view.dart';
 import '../../firmware_upload/views/firmware_upload_dialog.dart';
+import '../../firmware_upload/views/bulk_firmware_dialog.dart';
 
 /// Docklight-style serial monitor screen.
 /// Left pane: Send Sequences (full height)
@@ -315,30 +316,66 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
           SizedBox(
             height: 30,
             child: Builder(
-              builder: (context) => OutlinedButton.icon(
-                onPressed: controller.isConnected
-                    ? () => showDialog(
-                          context: context,
-                          barrierDismissible: false,
-                          builder: (_) => FirmwareUploadDialog(
-                            serialService: controller.service,
-                            isFD: controller.canConfig.canType == CanType.canFd,
-                            channel: controller.canConfig.channel.value,
-                          ),
-                        )
-                    : null,
-                icon: const Icon(Icons.memory_rounded, size: 14),
-                label: Text('Firmware', style: GoogleFonts.inter(fontSize: 11)),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.accentOrange,
-                  side: BorderSide(
-                    color: controller.isConnected
-                        ? AppTheme.accentOrange.withValues(alpha: 0.5)
-                        : AppTheme.borderColor,
+              builder: (context) {
+                final isFdMode = controller.isConnected && controller.canConfig.canType == CanType.canFd;
+                return OutlinedButton.icon(
+                  onPressed: isFdMode
+                      ? () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => FirmwareUploadDialog(
+                                serialService: controller.service,
+                                isFD: controller.canConfig.canType == CanType.canFd,
+                                channel: controller.canConfig.channel.value,
+                              ),
+                            ),
+                          )
+                      : null,
+                  icon: const Icon(Icons.memory_rounded, size: 14),
+                  label: Text('Firmware', style: GoogleFonts.inter(fontSize: 11)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.accentOrange,
+                    side: BorderSide(
+                      color: isFdMode
+                          ? AppTheme.accentOrange.withValues(alpha: 0.5)
+                          : AppTheme.borderColor,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                ),
-              ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(width: 6),
+          SizedBox(
+            height: 30,
+            child: Builder(
+              builder: (context) {
+                final isFdMode = controller.isConnected && controller.canConfig.canType == CanType.canFd;
+                return OutlinedButton.icon(
+                  onPressed: isFdMode
+                      ? () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => BulkFirmwareDialog(
+                                serialService: controller.service,
+                                channel: controller.canConfig.channel.value,
+                                isExtended: false,
+                              ),
+                            ),
+                          )
+                      : null,
+                  icon: const Icon(Icons.hub, size: 14),
+                  label: Text('Bulk OTA', style: GoogleFonts.inter(fontSize: 11)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.accentCyan,
+                    side: BorderSide(
+                      color: isFdMode
+                          ? AppTheme.accentCyan.withValues(alpha: 0.5)
+                          : AppTheme.borderColor,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                  ),
+                );
+              },
             ),
           ),
           const SizedBox(width: 12),
@@ -727,39 +764,64 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
   }
 
   void _showConnectionPopup(BuildContext context, bool isSuccess, String message) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: AppTheme.bgCard,
-          title: Row(
-            children: [
-              Icon(
-                isSuccess ? Icons.check_circle : Icons.error,
-                color: isSuccess ? AppTheme.successColor : AppTheme.errorColor,
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              isSuccess ? Icons.check_circle_rounded : Icons.error_rounded,
+              color: isSuccess ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isSuccess ? 'Connection Successful' : 'Connection Failed',
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    message,
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFF94A3B8),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
-              Text(
-                isSuccess ? 'Connection Successful' : 'Connection Failed',
-                style: GoogleFonts.inter(
-                  color: AppTheme.textBright,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          content: Text(
-            message,
-            style: GoogleFonts.inter(color: AppTheme.textPrimary),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK', style: TextStyle(color: AppTheme.primaryColor)),
             ),
           ],
-        );
-      },
+        ),
+        backgroundColor: const Color(0xFF1E293B),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(
+            color: isSuccess
+                ? const Color(0xFF4ADE80).withOpacity(0.3)
+                : const Color(0xFFF87171).withOpacity(0.3),
+            width: 1.5,
+          ),
+        ),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 4),
+        action: SnackBarAction(
+          label: 'DISMISS',
+          textColor: isSuccess ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
+          onPressed: () {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          },
+        ),
+      ),
     );
   }
 }
