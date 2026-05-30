@@ -408,6 +408,36 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
     }
   }
 
+  Future<void> _sendForceJump() async {
+    if (_isMockMode) {
+      _addLog('Sending Force Jump command (Mock): 41 80 80', _LogLevel.tx);
+      setState(() => _statusMessage = 'Sending Force Jump...');
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
+      _addLog('\u2190 RX: B0 (Force jump accepted \u2014 jumping to application)', _LogLevel.success);
+      setState(() => _statusMessage = 'Force jump sent \u2014 boards jumping to application');
+      return;
+    }
+
+    _addLog('Sending Force Jump command: 41 80 80', _LogLevel.tx);
+    setState(() => _statusMessage = 'Sending Force Jump...');
+
+    final result = await _service.sendForceJump(
+      txCanId: '0x01',
+      channel: widget.channel,
+      isExtended: widget.isExtended,
+    );
+
+    if (!mounted) return;
+    if (result.success) {
+      _addLog('\u2190 RX: ${result.rawHex} (${result.message})', _LogLevel.success);
+      setState(() => _statusMessage = result.message);
+    } else {
+      _addLog('\u274c ${result.message}', _LogLevel.error);
+      setState(() => _statusMessage = result.message);
+    }
+  }
+
   Future<void> _scanNodes() async {
     if (_isMockMode) {
       _startMockScan();
@@ -416,7 +446,7 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
 
     _addLog('Scanning CAN Bus (Tx ID: 0x01) for ${_selectedBoardType.label}...', _LogLevel.info);
     String typeHex = _selectedBoardType.value.toRadixString(16).padLeft(2, '0').toUpperCase();
-    _addLog('→ TX: 01 01 $typeHex 00 00 00 00 00', _LogLevel.tx);
+    _addLog('\u2192 TX: 01 01 $typeHex 00 00 00 00 00', _LogLevel.tx);
     setState(() {
       _isScanning = true;
       _boards.clear();
@@ -434,7 +464,7 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
       if (mounted) {
         _addLog('Scan complete: Found ${results.length} nodes.', _LogLevel.success);
         for(var b in results) {
-          _addLog('← RX [Node ${b.deviceIdStr}]: ${b.rawHex} (${b.boardTypeName}, Ver: ${b.version})', _LogLevel.rx);
+          _addLog('\u2190 RX [Node ${b.deviceIdStr}]: ${b.rawHex} (${b.boardTypeName}, Ver: ${b.version})', _LogLevel.rx);
         }
         setState(() {
           _boards = results;

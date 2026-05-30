@@ -44,8 +44,8 @@ class CanFrameBuilder {
     return Uint8List.fromList(frame);
   }
 
-  /// Build a heartbeat request frame: `D0 00`
-  static Uint8List buildHeartbeatFrame() {
-    return Uint8List.fromList([0xD0, 0x00]);
-  }
+  /// Build a heartbeat request frame: `D0 00` (commented out)
+  // static Uint8List buildHeartbeatFrame() {
+  //   return Uint8List.fromList([0xD0, 0x00]);
+  // }
 }

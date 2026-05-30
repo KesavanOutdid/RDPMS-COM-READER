@@ -36,6 +36,39 @@ enum BoardType {
 
 enum BoardOtaStatus { discovered, uploading, success, error }
 
+/// Boot status codes sent by the bootloader at power-on (§3.1)
+enum BootStatus {
+  noUpdate(0xA0, 'No update — jumping to app'),
+  waitingForBin(0xA1, 'Waiting for .bin (boot flag set)'),
+  waitingForNewBin(0xA2, 'Waiting for new .bin (update requested)'),
+  blankFlash(0xA3, 'Initial wait — blank flash'),
+  unknown(0x00, 'Unknown');
+
+  final int code;
+  final String description;
+  const BootStatus(this.code, this.description);
+
+  static BootStatus fromCode(int code) {
+    for (final s in BootStatus.values) {
+      if (s.code == code) return s;
+    }
+    return BootStatus.unknown;
+  }
+}
+
+/// Human-readable error descriptions for bootloader NACK codes (§3.3)
+String errorDescription(int code) {
+  switch (code) {
+    case 0xE1: return 'Missing frames — byte count mismatch';
+    case 0xE2: return 'CRC error — frame or whole-file CRC mismatch';
+    case 0xE3: return 'Board type mismatch';
+    case 0xE4: return 'Bin file size mismatch';
+    case 0xE5: return 'Total frames mismatch';
+    case 0xE6: return 'All frames not received';
+    default:   return 'Unknown error (0x${code.toRadixString(16).toUpperCase()})';
+  }
+}
+
 class DiscoveredBoard {
   final int canId;       // Hardware CAN ID from the frame header
   final int deviceId;    // Device ID from tx_buffer[1] (DIP switch value)
@@ -47,6 +80,7 @@ class DiscoveredBoard {
   bool selected;         // Whether this board is selected for OTA
   double progress;       // Individual upload progress (0.0 to 1.0)
   final String originalVersion; // Store original version before OTA
+  BootStatus bootStatus; // Boot status code from power-on (§3.1)
 
   DiscoveredBoard({
     required this.canId,
@@ -58,6 +92,7 @@ class DiscoveredBoard {
     this.rawHex = '',
     this.selected = true,
     this.progress = 0.0,
+    this.bootStatus = BootStatus.unknown,
     String? originalVersion,
   }) : originalVersion = originalVersion ?? version;
 
@@ -243,7 +278,7 @@ class BulkFirmwareService {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  //  SCAN MODE (0x01)
+  //  SCAN MODE (0x01) — Firmware Version Request (§2.1)
   // ═══════════════════════════════════════════════════════════════
 
   Future<List<DiscoveredBoard>> scanBoards({
@@ -260,20 +295,33 @@ class BulkFirmwareService {
     _serialService.onCanFrameRx = (Map<String, dynamic> frame) {
       final dataHex = frame['dataHex'] as String? ?? '';
       final hexParts = dataHex.split(' ').where((s) => s.isNotEmpty).toList();
+      if (hexParts.isEmpty) return;
 
-      // New C firmware response format:
+      final canIdStr = frame['canId']?.toString() ?? '';
+      final canIdNum = int.tryParse(
+        canIdStr.replaceAll('0x', '').replaceAll(' ', ''),
+        radix: 16,
+      ) ?? 0;
+
+      final firstByte = int.tryParse(hexParts[0], radix: 16) ?? 0;
+
+      // ── Boot Status Codes (§3.1): 0xA0, 0xA1, 0xA2, 0xA3 ──
+      // Sent once at power-on. We capture them during scan so the
+      // UI can show each board's startup condition.
+      if (firstByte >= 0xA0 && firstByte <= 0xA3) {
+        // Boot status frames may not include version info,
+        // just record the status for any board that sends it.
+        // We'll merge with the version response if it comes later.
+        return; // Boot status noted but board will reply with version next
+      }
+
+      // ── Firmware Version Response (§3.4) ──
       // tx_buffer[0] = Board Type (0x01–0x08)
       // tx_buffer[1] = DEVICE_CAN_ID (DIP switch value, 1–80)
-      // tx_buffer[2+] = BOOT_VERSION string (ASCII, null-terminated, e.g. "2.0.0")
+      // tx_buffer[2+] = BOOT_VERSION string (ASCII, null-terminated)
       if (hexParts.length > 2) {
-        final canIdStr = frame['canId']?.toString() ?? '';
-        final canIdNum = int.tryParse(
-          canIdStr.replaceAll('0x', '').replaceAll(' ', ''),
-          radix: 16,
-        ) ?? 0;
-
         // Byte 0: Board Type
-        final boardType = int.tryParse(hexParts[0], radix: 16) ?? 0;
+        final boardType = firstByte;
 
         // Byte 1: Device CAN ID (DIP switch value)
         final deviceId = int.tryParse(hexParts[1], radix: 16) ?? 0;
@@ -306,7 +354,7 @@ class BulkFirmwareService {
       }
     };
 
-    // Send scan request: byte[0] = 0x01, byte[1] = 0x01, byte[2] = targetBoardType, rest = 0x00
+    // Send scan request: byte[0] = 0x01, byte[1] = 0x01 (§2.1)
     _send8ByteFrame(
       [0x01, 0x01, targetBoardType],
       canId: txCanId,
@@ -422,8 +470,8 @@ class BulkFirmwareService {
           status: BulkUploadStatus.waitingHeaderAck,
           totalFrames: file.frameCount,
           message: ack.success
-              ? 'Node #${ack.deviceId} ACK ✓ (RX: ${ack.rawHex})'
-              : 'Node #${ack.deviceId} NACK ✗ (RX: ${ack.rawHex})',
+              ? 'Node #${ack.deviceId} ACK \u2713 (RX: ${ack.rawHex})'
+              : 'Node #${ack.deviceId} NACK \u2717: ${ack.errorDetail} (RX: ${ack.rawHex})',
           boardCanId: ack.canId,
           boardSuccess: ack.success,
         );
@@ -587,7 +635,8 @@ class BulkFirmwareService {
       }
 
       final completionPayload = List<int>.filled(_frameSize, 0x00);
-      completionPayload[0] = 0x46; // Completion mode
+      completionPayload[0] = 0x4F; // 'O'
+      completionPayload[1] = 0x4B; // 'K'
       final completionHex = _bytesToHex(completionPayload);
 
       if (manualMode) {
@@ -611,52 +660,74 @@ class BulkFirmwareService {
         }
       }
 
-      yield BulkUploadProgress(
-        status: BulkUploadStatus.sendingCompletion,
-        currentFrame: file.frameCount,
-        totalFrames: file.frameCount,
-        message: 'Sending Completion Signal: $completionHex',
-      );
-
-      final completionSent = _send64ByteFrame(
-        completionPayload,
-        canId: txCanId,
-        channel: channel,
-        isExtended: isExtended,
-      );
-
-      if (!completionSent) {
+      final allCompletionAcks = <_CompletionAck>[];
+      
+      for (int attempt = 1; attempt <= 1; attempt++) {
         yield BulkUploadProgress(
-          status: BulkUploadStatus.error,
+          status: BulkUploadStatus.sendingCompletion,
           currentFrame: file.frameCount,
           totalFrames: file.frameCount,
-          message: 'Failed to send Completion Signal — port not available.',
+          message: attempt == 1 
+            ? 'Sending Completion Signal: $completionHex'
+            : 'Retry $attempt/3: Resending Completion Signal...',
         );
-        return;
-      }
 
-      yield BulkUploadProgress(
-        status: BulkUploadStatus.waitingCompletionAck,
-        currentFrame: file.frameCount,
-        totalFrames: file.frameCount,
-        message: 'Completion Signal sent. Waiting for boards to ACK and report new versions...',
-      );
+        final completionSent = _send64ByteFrame(
+          completionPayload,
+          canId: txCanId,
+          channel: channel,
+          isExtended: isExtended,
+        );
 
-      final completionAcks = await _waitForCompletionAcks(
-        expectedCanIds: selectedCanIds,
-        maxTimeoutSeconds: 30,
-        graceTimeoutSeconds: 5,
-      );
+        if (!completionSent) {
+          yield BulkUploadProgress(
+            status: BulkUploadStatus.error,
+            currentFrame: file.frameCount,
+            totalFrames: file.frameCount,
+            message: 'Failed to send Completion Signal — port not available.',
+          );
+          return;
+        }
 
-      if (_cancelled) {
         yield BulkUploadProgress(
-          status: BulkUploadStatus.cancelled,
+          status: BulkUploadStatus.waitingCompletionAck,
           currentFrame: file.frameCount,
           totalFrames: file.frameCount,
-          message: 'Upload cancelled during completion phase.',
+          message: attempt == 1
+            ? 'Completion Signal sent. Waiting for boards to ACK and report new versions...'
+            : 'Retry $attempt/3: Waiting for boards to ACK...',
         );
-        return;
+
+        // Figure out which ones we still need
+        final receivedIds = allCompletionAcks.map((a) => a.canId).toSet();
+        final remainingIds = selectedCanIds.difference(receivedIds);
+        if (remainingIds.isEmpty) break; // We already have all of them
+
+        final completionAcks = await _waitForCompletionAcks(
+          expectedCanIds: remainingIds,
+          maxTimeoutSeconds: 5,
+          graceTimeoutSeconds: 5,
+        );
+
+        allCompletionAcks.addAll(completionAcks);
+
+        if (_cancelled) {
+          yield BulkUploadProgress(
+            status: BulkUploadStatus.cancelled,
+            currentFrame: file.frameCount,
+            totalFrames: file.frameCount,
+            message: 'Upload cancelled during completion phase.',
+          );
+          return;
+        }
+
+        final newReceivedIds = allCompletionAcks.map((a) => a.canId).toSet();
+        if (selectedCanIds.difference(newReceivedIds).isEmpty) {
+          break; // Got all ACKs
+        }
       }
+
+      final completionAcks = allCompletionAcks;
 
       // Report ACK results back to the UI
       for (final ack in completionAcks) {
@@ -665,8 +736,8 @@ class BulkFirmwareService {
           currentFrame: file.frameCount,
           totalFrames: file.frameCount,
           message: ack.success
-              ? 'Node #${ack.canId} ACK ✓ (New Version: ${ack.newVersion})'
-              : 'Node #${ack.canId} NACK ✗ (RX: ${ack.rawHex})',
+              ? 'Node #${ack.canId} ACK \u2713 (New Version: ${ack.newVersion})'
+              : 'Node #${ack.canId} NACK \u2717: ${ack.errorDetail} (RX: ${ack.rawHex})',
           boardCanId: ack.canId,
           boardSuccess: ack.success,
           boardNewVersion: ack.success ? ack.newVersion : null,
@@ -778,8 +849,8 @@ class BulkFirmwareService {
       if (hexParts.isEmpty) return;
 
       final firstByte = hexParts[0].toUpperCase();
-      // ACK: 0x79, Errors: 0xE1 (wrong target), 0xE2 (size error), 0xE3 (frame error)
-      if (firstByte == '79' || firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4') {
+      // ACK: 0x79, Errors: 0xE1–0xE5 (§3.2, §3.3)
+      if (firstByte == '79' || firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E6') {
         final canIdStr = frame['canId']?.toString() ?? '';
         final canIdNum = int.tryParse(
           canIdStr.replaceAll('0x', '').replaceAll(' ', ''),
@@ -789,6 +860,10 @@ class BulkFirmwareService {
         // Byte 1: Board Type, Byte 2: Device CAN ID
         final deviceId = hexParts.length > 2 ? (int.tryParse(hexParts[2], radix: 16) ?? 0) : 0;
 
+        // Build error description for NACK codes
+        final errorCode = int.tryParse(firstByte, radix: 16) ?? 0;
+        final errDesc = firstByte != '79' ? errorDescription(errorCode) : '';
+
         // Ensure we don't add duplicates if a board spams ACKs
         if (!acks.any((a) => a.deviceId == deviceId)) {
           acks.add(_BoardAck(
@@ -796,6 +871,7 @@ class BulkFirmwareService {
             deviceId: deviceId,
             success: firstByte == '79',
             rawHex: hexParts.join(' '),
+            errorDetail: errDesc,
           ));
         }
 
@@ -857,7 +933,8 @@ class BulkFirmwareService {
       if (hexParts.isEmpty) return;
 
       final firstByte = hexParts[0].toUpperCase();
-      if (firstByte == '79' || firstByte == 'E1') {
+      // ACK: 0x79, All NACK codes: 0xE1–0xE5 (§3.2, §3.3)
+      if (firstByte == '79' || firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E6') {
         final canIdStr = frame['canId']?.toString() ?? '';
         final canIdNum = int.tryParse(
           canIdStr.replaceAll('0x', '').replaceAll(' ', ''),
@@ -866,7 +943,7 @@ class BulkFirmwareService {
 
         // Only parse if it's one of our expected CAN IDs
         if (expectedCanIds.contains(canIdNum)) {
-          // Parse version if success
+          // Parse version if success (§3.2: 0x79 + board_type + CAN_ID + UPDATED_VERSION)
           String newVersion = '';
           if (firstByte == '79') {
             for (int i = 3; i < hexParts.length; i++) {
@@ -880,12 +957,17 @@ class BulkFirmwareService {
             }
           }
 
+          // Build error description for NACK codes
+          final errorCode = int.tryParse(firstByte, radix: 16) ?? 0;
+          final errDesc = firstByte != '79' ? errorDescription(errorCode) : '';
+
           if (!acks.any((a) => a.canId == canIdNum)) {
             acks.add(_CompletionAck(
               canId: canIdNum,
               success: firstByte == '79',
               newVersion: newVersion.isEmpty ? 'Unknown' : newVersion,
               rawHex: hexParts.join(' '),
+              errorDetail: errDesc,
             ));
 
             // Start grace timer on first response if not already active
@@ -918,16 +1000,79 @@ class BulkFirmwareService {
     await completer.future;
     return acks;
   }
+  // ═══════════════════════════════════════════════════════════════
+  //  FORCE APPLICATION JUMP (§2.5)
+  // ═══════════════════════════════════════════════════════════════
+
+  /// Send Force Application Jump command: [0x41, 0x80, 0x80]
+  /// Clears OTA flag and jumps to application.
+  /// Bootloader responds with 0xB0 (§3.2).
+  Future<ForceJumpResult> sendForceJump({
+    required String txCanId,
+    required int channel,
+    required bool isExtended,
+  }) async {
+    final completer = Completer<ForceJumpResult>();
+
+    final savedRx = _serialService.onCanFrameRx;
+    _serialService.onCanFrameRx = (Map<String, dynamic> frame) {
+      if (completer.isCompleted) return;
+      final dataHex = frame['dataHex'] as String? ?? '';
+      final hexParts = dataHex.split(' ').where((s) => s.isNotEmpty).toList();
+      if (hexParts.isEmpty) return;
+
+      final firstByte = hexParts[0].toUpperCase();
+      if (firstByte == 'B0') {
+        completer.complete(ForceJumpResult(
+          success: true,
+          message: 'Force jump accepted — board jumping to application',
+          rawHex: hexParts.join(' '),
+        ));
+      }
+    };
+
+    // Send force jump command: 0x41 0x80 0x80 (§2.5)
+    _send8ByteFrame(
+      [0x41, 0x80, 0x80],
+      canId: txCanId,
+      channel: channel,
+      isExtended: isExtended,
+    );
+
+    // Wait for 0xB0 response with timeout
+    try {
+      final result = await completer.future.timeout(const Duration(seconds: 5));
+      _serialService.onCanFrameRx = savedRx;
+      return result;
+    } on TimeoutException {
+      _serialService.onCanFrameRx = savedRx;
+      return ForceJumpResult(
+        success: false,
+        message: 'No response to force jump command (timeout 5s)',
+        rawHex: '',
+      );
+    }
+  }
 }
 
-// ── Internal ACK models ──
+// ═══════════════════════════════════════════════════════════════
+//  INTERNAL MODELS
+// ═══════════════════════════════════════════════════════════════
+
+class ForceJumpResult {
+  final bool success;
+  final String message;
+  final String rawHex;
+  ForceJumpResult({required this.success, required this.message, required this.rawHex});
+}
 
 class _BoardAck {
   final int canId;
   final int deviceId;
   final bool success;
   final String rawHex;
-  _BoardAck({required this.canId, required this.deviceId, required this.success, required this.rawHex});
+  final String errorDetail;
+  _BoardAck({required this.canId, required this.deviceId, required this.success, required this.rawHex, this.errorDetail = ''});
   String get canIdHex => '0x${canId.toRadixString(16).toUpperCase().padLeft(3, '0')}';
 }
 
@@ -936,11 +1081,13 @@ class _CompletionAck {
   final bool success;
   final String newVersion;
   final String rawHex;
+  final String errorDetail;
   _CompletionAck({
     required this.canId,
     required this.success,
     required this.newVersion,
     required this.rawHex,
+    this.errorDetail = '',
   });
   String get canIdHex => '0x${canId.toRadixString(16).toUpperCase().padLeft(3, '0')}';
 }

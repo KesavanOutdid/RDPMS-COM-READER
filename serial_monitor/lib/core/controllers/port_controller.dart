@@ -84,9 +84,9 @@ class PortController extends ChangeNotifier {
     _service.onDisconnected = _handleDisconnected;
     _service.onPortsChanged = _handlePortsChanged;
     _service.onConnected = _handleConnected;
-    _service.onHeartbeatAck = _handleHeartbeatAck;
-    _service.onHeartbeatMiss = _handleHeartbeatMiss;
-    _service.onHeartbeatTimeout = _handleHeartbeatTimeout;
+    // _service.onHeartbeatAck = _handleHeartbeatAck;
+    // _service.onHeartbeatMiss = _handleHeartbeatMiss;
+    // _service.onHeartbeatTimeout = _handleHeartbeatTimeout;
 
     // Start local USB port polling.
     _service.initialize();

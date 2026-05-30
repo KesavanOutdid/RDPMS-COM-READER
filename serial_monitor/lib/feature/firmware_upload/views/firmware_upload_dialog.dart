@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/services/firmware_upload_service.dart';
+import '../../../core/services/bulk_firmware_service.dart'; // BoardType
 import '../../../core/services/serial_port_service.dart';
 import '../../../utils/theme/app_theme.dart';
 
@@ -39,8 +40,8 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
   int _totalFrames = 0;
   UploadStatus _status = UploadStatus.idle;
   
-  bool _sendCrcInHeader = true;
-  bool _sendCrcInData = true;
+  // Board type selector (required by spec §2.2)
+  BoardType _selectedBoardType = BoardType.acVoltage;
   final List<_LogEntry> _log = [];
   final ScrollController _logScrollController = ScrollController();
 
@@ -147,8 +148,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
       channel: widget.channel,
       isExtended: canIdHex.replaceAll('0x', '').length > 3,
       isFD: widget.isFD,
-      sendCrcInHeader: _sendCrcInHeader,
-      sendCrcInData: _sendCrcInData,
+      boardType: _selectedBoardType.value,
       interFrameDelayMs: delayMs,
     )) {
       if (!mounted) return;
@@ -174,7 +174,10 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
             _addLog('→ ${event.message}', _LogLevel.tx);
           }
           break;
-        case UploadStatus.waitingFrameAck:
+        case UploadStatus.sendingCompletion:
+          _addLog('→ ${event.message}', _LogLevel.tx);
+          break;
+        case UploadStatus.waitingCompletionAck:
           _addLog('⏳ ${event.message}', _LogLevel.info);
           break;
         case UploadStatus.complete:
@@ -497,30 +500,34 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Protocol Options',
+                  'Board Type (§2.2)',
                   style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
                 ),
                 const SizedBox(height: 8),
                 SizedBox(
                   height: 38,
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Row(
-                      children: [
-                        _buildCheckbox(
-                          'Header CRC',
-                          _sendCrcInHeader,
-                          (val) => setState(() => _sendCrcInHeader = val ?? true),
-                        ),
-                        const SizedBox(width: 12),
-                        _buildCheckbox(
-                          'Data CRC',
-                          _sendCrcInData,
-                          (val) => setState(() => _sendCrcInData = val ?? true),
-                        ),
-                      ],
+                  child: DropdownButtonFormField<BoardType>(
+                    initialValue: _selectedBoardType,
+                    onChanged: _isUploading ? null : (val) {
+                      if (val != null) setState(() => _selectedBoardType = val);
+                    },
+                    style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textPrimary),
+                    dropdownColor: AppTheme.bgElevated,
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: const BorderSide(color: AppTheme.borderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: const BorderSide(color: AppTheme.primaryColor),
+                      ),
                     ),
+                    items: BoardType.values.where((bt) => bt != BoardType.all).map((bt) => DropdownMenuItem(
+                      value: bt,
+                      child: Text('0x${bt.value.toRadixString(16).padLeft(2, '0').toUpperCase()} - ${bt.label}'),
+                    )).toList(),
                   ),
                 ),
               ],
@@ -531,31 +538,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
     );
   }
 
-  Widget _buildCheckbox(String label, bool value, ValueChanged<bool?> onChanged) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Transform.scale(
-          scale: 0.75,
-          child: Switch(
-            value: value,
-            onChanged: _isUploading ? null : (val) => onChanged(val),
-            activeColor: AppTheme.primaryColor,
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: GoogleFonts.inter(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: AppTheme.textPrimary,
-          ),
-        ),
-      ],
-    );
-  }
+
 
   Widget _buildInfoCards() {
     final fw = _firmwareFile!;
@@ -622,9 +605,13 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
         statusColor = AppTheme.warningColor;
         break;
       case UploadStatus.sendingFrame:
-      case UploadStatus.waitingFrameAck:
         statusLabel = 'Frame $_currentFrame / $_totalFrames';
         statusColor = AppTheme.primaryColor;
+        break;
+      case UploadStatus.sendingCompletion:
+      case UploadStatus.waitingCompletionAck:
+        statusLabel = 'Validating...';
+        statusColor = AppTheme.warningColor;
         break;
       case UploadStatus.complete:
         statusLabel = 'Upload complete!';

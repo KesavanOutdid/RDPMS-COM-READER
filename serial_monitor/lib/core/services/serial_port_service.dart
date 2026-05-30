@@ -42,9 +42,9 @@ class SerialPortService {
   Function()? onDisconnected;
   Function(List<String> ports)? onPortsChanged;
   Function(String port)? onConnected;
-  Function(String port, String status, DateTime? timestamp)? onHeartbeatAck;
-  Function(String port, int missCount)? onHeartbeatMiss;
-  Function(String port)? onHeartbeatTimeout;
+  // Function(String port, String status, DateTime? timestamp)? onHeartbeatAck;
+  // Function(String port, int missCount)? onHeartbeatMiss;
+  // Function(String port)? onHeartbeatTimeout;
 
   // ── Getters ──
   bool get isConnected => _isConnected;
@@ -154,7 +154,7 @@ class SerialPortService {
         }
 
         // 4. Start heartbeat loop (device expects D0 00 every ~1s)
-        _startHeartbeat();
+        // _startHeartbeat();
       }
 
       onConnected?.call(config.portName);
@@ -170,9 +170,9 @@ class SerialPortService {
   // ═══════════════════════════════════════════════════════════════
 
   Future<void> disconnect() async {
-    _heartbeatTimer?.cancel();
-    _heartbeatWaiting = false;
-    _heartbeatMissCount = 0;
+        // _heartbeatTimer?.cancel();
+    // _heartbeatWaiting = false;
+    // _heartbeatMissCount = 0;
     _readerSubscription?.cancel();
     _reader?.close();
 
@@ -216,10 +216,9 @@ class SerialPortService {
         case FrameType.rxFrame:
           onCanFrameRx?.call(frame.data);
           break;
-        case FrameType.heartbeatResponse:
-          _handleHeartbeatAck(frame.data);
-          break;
-        case FrameType.unknown:
+        // Heartbeat handling disabled
+        default:
+          // No action for other frame types
           break;
       }
     }
@@ -231,44 +230,44 @@ class SerialPortService {
     }
   }
 
-  void _handleHeartbeatAck(Map<String, dynamic> frame) {
-    _heartbeatWaiting = false;
-    _heartbeatMissCount = 0;
-    onHeartbeatAck?.call(
-      _connectedPort,
-      frame['status']?.toString() ?? 'OK',
-      DateTime.now(),
-    );
-  }
+  // void _handleHeartbeatAck(Map<String, dynamic> frame) {
+  //   _heartbeatWaiting = false;
+  //   _heartbeatMissCount = 0;
+  //   onHeartbeatAck?.call(
+  //     _connectedPort,
+  //     frame['status']?.toString() ?? 'OK',
+  //     DateTime.now(),
+  //   );
+  // }
 
   // ═══════════════════════════════════════════════════════════════
   //  HEARTBEAT — send D0 00 every 1s, track D1 replies
   // ═══════════════════════════════════════════════════════════════
 
-  void _startHeartbeat() {
-    _heartbeatTimer?.cancel();
-    _heartbeatMissCount = 0;
-    _heartbeatWaiting = false;
+  // void _startHeartbeat() {
+  //   _heartbeatTimer?.cancel();
+  //   _heartbeatMissCount = 0;
+  //   _heartbeatWaiting = false;
 
-    _heartbeatTimer = Timer.periodic(const Duration(milliseconds: 1000), (_) {
-      if (!_isConnected) return;
+  //   _heartbeatTimer = Timer.periodic(const Duration(milliseconds: 1000), (_) {
+  //     if (!_isConnected) return;
 
-      if (_heartbeatWaiting) {
-        // Previous heartbeat was not acknowledged
-        _heartbeatMissCount++;
-        onHeartbeatMiss?.call(_connectedPort, _heartbeatMissCount);
+  //     if (_heartbeatWaiting) {
+  //       // Previous heartbeat was not acknowledged
+  //       _heartbeatMissCount++;
+  //       onHeartbeatMiss?.call(_connectedPort, _heartbeatMissCount);
 
-        if (_heartbeatMissCount >= _heartbeatMaxMiss) {
-          onHeartbeatTimeout?.call(_connectedPort);
-          disconnect();
-          return;
-        }
-      }
+  //       if (_heartbeatMissCount >= _heartbeatMaxMiss) {
+  //         onHeartbeatTimeout?.call(_connectedPort);
+  //         disconnect();
+  //         return;
+  //       }
+  //     }
 
-      _writeLocalBytes(CanFrameBuilder.buildHeartbeatFrame());
-      _heartbeatWaiting = true;
-    });
-  }
+  //     _writeLocalBytes(CanFrameBuilder.buildHeartbeatFrame());
+  //     _heartbeatWaiting = true;
+  //   });
+  // }
 
   // ═══════════════════════════════════════════════════════════════
   //  SEND DATA

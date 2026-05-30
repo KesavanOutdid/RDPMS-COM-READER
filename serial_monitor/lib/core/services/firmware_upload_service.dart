@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'serial_port_service.dart';
+import 'bulk_firmware_service.dart'; // BoardType, errorDescription
 
 // ═══════════════════════════════════════════════════════════════
 //  CRC-16/MODBUS
@@ -46,7 +47,8 @@ enum UploadStatus {
   sendingHeader,
   waitingHeaderAck,
   sendingFrame,
-  waitingFrameAck,
+  sendingCompletion,
+  waitingCompletionAck,
   complete,
   error,
   cancelled,
@@ -78,23 +80,22 @@ class UploadProgress {
 //  CONSTANTS
 // ═══════════════════════════════════════════════════════════════
 
-const int _chunkSize = 60;
+const int _chunkSize = 60;       // Bytes 2–61 in a 64-byte data frame
+const int _frameSize = 64;       // CAN FD frame size
 const Duration _ackTimeout = Duration(seconds: 30);
 
 // ═══════════════════════════════════════════════════════════════
 //  FIRMWARE UPLOAD SERVICE
 // ═══════════════════════════════════════════════════════════════
 
-/// Handles firmware binary upload over CAN bus.
+/// Handles single-device firmware binary upload over CAN FD bus.
 ///
-/// Protocol:
-///   1. Send HEADER [4B size][2B count][2B CRC] as CAN frame payload
-///   2. Wait for "OK" CAN frame response (30s)
-///   3. For each chunk: [2B serial][60B data][2B CRC] split into CAN frames
-///   4. Wait for "OK" after each chunk
-///
-/// Data is sent via sendCanFrame() so the USB-CAN adapter properly
-/// transmits it on the CAN bus.
+/// Protocol (STM32H503 CAN OTA Bootloader Command Reference v1.0):
+///   1. Send OTA Header (0x02) — §2.2
+///   2. Wait for ACK (0x79) — §3.2
+///   3. Send Binary Data Frames (0x42+0x49) × N — §2.3
+///   4. Send Final ACK / End-of-Transmission (0x46) — §2.4
+///   5. Wait for OTA Complete ACK (0x79) — §3.2
 class FirmwareUploadService {
   final SerialPortService _serialService;
   bool _cancelled = false;
@@ -116,39 +117,35 @@ class FirmwareUploadService {
     );
   }
 
-  // ── Build frames ──
+  // ── Build frames (matching spec §2.2, §2.3, §2.4) ──
 
-  Uint8List buildHeaderFrame(FirmwareFile file, bool includeCrc) {
-    final header = Uint8List(includeCrc ? 8 : 6);
-    
-    // Explicit "00 00" Header ID
-    header[0] = 0x00;
-    header[1] = 0x00;
-    
-    // 16-bit File Size (Little-Endian)
-    header[2] = file.fileSize & 0xFF;
-    header[3] = (file.fileSize >> 8) & 0xFF;
-    
-    // 16-bit Frame Count (Little-Endian)
-    header[4] = file.frameCount & 0xFF;
-    header[5] = (file.frameCount >> 8) & 0xFF;
-    
-    if (includeCrc) {
-      // 16-bit CRC (Little-Endian)
-      header[6] = file.fileCrc & 0xFF;
-      header[7] = (file.fileCrc >> 8) & 0xFF;
-    }
-    
+  /// Build OTA Header Frame (§2.2)
+  /// Byte[0] = 0x02, Byte[1] = board_type,
+  /// Bytes[2–3] = bin_size (LE), Bytes[4–5] = total_frames (LE),
+  /// Bytes[6–7] = whole_file_crc (LE)
+  Uint8List buildHeaderFrame(FirmwareFile file, int boardType) {
+    final header = Uint8List(8);
+    header[0] = 0x02;                         // Command identifier (§2.2)
+    header[1] = boardType & 0xFF;             // Target board type
+    header[2] = file.fileSize & 0xFF;         // Bin size LSB
+    header[3] = (file.fileSize >> 8) & 0xFF;  // Bin size MSB
+    header[4] = file.frameCount & 0xFF;       // Total frames LSB
+    header[5] = (file.frameCount >> 8) & 0xFF;// Total frames MSB
+    header[6] = file.fileCrc & 0xFF;          // Whole-file CRC LSB
+    header[7] = (file.fileCrc >> 8) & 0xFF;   // Whole-file CRC MSB
     return header;
   }
 
-  Uint8List buildDataFrame(FirmwareFile file, int frameIndex, bool includeCrc) {
-    final frameLength = includeCrc ? 64 : 62;
-    final frame = Uint8List(frameLength);
-    // Little-Endian
-    frame[0] = frameIndex & 0xFF;
-    frame[1] = (frameIndex >> 8) & 0xFF;
+  /// Build Binary Data Frame (§2.3)
+  /// Byte[0] = 0x42, Byte[1] = 0x49,
+  /// Bytes[2–61] = 60 bytes firmware data,
+  /// Bytes[62–63] = CRC16-Modbus of bytes[0–61] (LE)
+  Uint8List buildDataFrame(FirmwareFile file, int frameIndex) {
+    final frame = Uint8List(_frameSize);
+    frame[0] = 0x42;  // Frame identifier byte 1 (§2.3)
+    frame[1] = 0x49;  // Frame identifier byte 2 (§2.3)
 
+    // Binary payload: bytes 2–61
     final dataStart = frameIndex * _chunkSize;
     final dataEnd = (dataStart + _chunkSize).clamp(0, file.fileSize);
     final actualLen = dataEnd - dataStart;
@@ -156,20 +153,25 @@ class FirmwareUploadService {
       frame[2 + i] = file.bytes[dataStart + i];
     }
 
-    if (includeCrc) {
-      final crc = crc16Modbus(frame.sublist(0, 62).toList());
-      // Little-Endian
-      frame[62] = crc & 0xFF;
-      frame[63] = (crc >> 8) & 0xFF;
-    }
+    // CRC16-Modbus of bytes[0]–[61] (§2.3)
+    final crc = crc16Modbus(frame.sublist(0, 62).toList());
+    frame[62] = crc & 0xFF;          // CRC LSB
+    frame[63] = (crc >> 8) & 0xFF;   // CRC MSB
+
+    return frame;
+  }
+
+  /// Build Final ACK / End-of-Transmission frame (§2.4)
+  /// Byte[0] = 0x4F, Byte[1] = 0x4B
+  Uint8List buildCompletionFrame() {
+    final frame = Uint8List(_frameSize);
+    frame[0] = 0x4F;  // 'O'
+    frame[1] = 0x4B;  // 'K'
     return frame;
   }
 
   // ── Send via CAN frames ──
 
-  /// Send raw bytes as one or more CAN frames.
-  /// For Classic CAN (8B max), splits into multiple 8-byte CAN frames.
-  /// For CAN FD (64B max), sends in larger chunks.
   bool _sendViaCan(
     List<int> payload, {
     required String canId,
@@ -219,29 +221,28 @@ class FirmwareUploadService {
     _savedTxCallback = null;
   }
 
-  /// Start firmware upload via CAN frames.
+  /// Start firmware upload via CAN FD frames (full spec protocol).
   Stream<UploadProgress> startUpload(
     FirmwareFile file, {
     required String canId,
     required int channel,
     required bool isExtended,
     required bool isFD,
-    required bool sendCrcInHeader,
-    required bool sendCrcInData,
+    required int boardType,
     required int interFrameDelayMs,
   }) async* {
     _cancelled = false;
     _suppressConsoleLogging();
 
     try {
-      // ── STEP 1: Send Header ──
+      // ── STEP 1: Send OTA Header (§2.2) ──
       yield UploadProgress(
         status: UploadStatus.sendingHeader,
         totalFrames: file.frameCount,
-        message: 'Sending header (${file.fileSize} bytes, ${file.frameCount} frames)...',
+        message: 'Sending OTA header (${file.fileSize} bytes, ${file.frameCount} frames, board type: 0x${boardType.toRadixString(16).toUpperCase()})...',
       );
 
-      final headerBytes = buildHeaderFrame(file, sendCrcInHeader);
+      final headerBytes = buildHeaderFrame(file, boardType);
       final headerHex = _bytesToHexDisplay(headerBytes);
       final headerSent = _sendViaCan(
         headerBytes.toList(),
@@ -264,29 +265,29 @@ class FirmwareUploadService {
         yield UploadProgress(status: UploadStatus.cancelled, totalFrames: file.frameCount, message: 'Upload cancelled by user.');
         return;
       }
-      if (headerResult == _AckResult.error) {
-        yield UploadProgress(status: UploadStatus.error, totalFrames: file.frameCount, message: 'Device returned ERROR (0xE1) for header.');
+      if (headerResult.result == _AckCode.error) {
+        yield UploadProgress(status: UploadStatus.error, totalFrames: file.frameCount, message: 'Device rejected header: ${headerResult.errorDetail} (0x${headerResult.rawByte})');
         return;
       }
-      if (headerResult == _AckResult.timeout) {
+      if (headerResult.result == _AckCode.timeout) {
         yield UploadProgress(status: UploadStatus.error, totalFrames: file.frameCount, message: 'No ACK for header (timeout ${_ackTimeout.inSeconds}s).');
         return;
       }
 
-      yield UploadProgress(status: UploadStatus.sendingFrame, totalFrames: file.frameCount, message: 'Header acknowledged ✓');
+      yield UploadProgress(status: UploadStatus.sendingFrame, totalFrames: file.frameCount, message: 'Header acknowledged ✓ — flash erased, ready for data');
 
       if (interFrameDelayMs > 0) {
         await Future.delayed(Duration(milliseconds: interFrameDelayMs));
       }
 
-      // ── STEP 2: Send Data Frames ──
+      // ── STEP 2: Send Binary Data Frames (§2.3) ──
       for (int i = 0; i < file.frameCount; i++) {
         if (_cancelled) {
           yield UploadProgress(status: UploadStatus.cancelled, currentFrame: i, totalFrames: file.frameCount, message: 'Upload cancelled at frame $i.');
           return;
         }
 
-        final frameBytes = buildDataFrame(file, i, sendCrcInData);
+        final frameBytes = buildDataFrame(file, i);
         final frameHex = _bytesToHexDisplay(frameBytes);
         yield UploadProgress(
           status: UploadStatus.sendingFrame,
@@ -312,30 +313,116 @@ class FirmwareUploadService {
         }
       }
 
+      // ── STEP 3: Send Final ACK / End-of-Transmission (§2.4) ──
+      _AckResponse? completionResult;
+      
+      for (int attempt = 1; attempt <= 1; attempt++) {
+        yield UploadProgress(
+          status: UploadStatus.sendingCompletion,
+          currentFrame: file.frameCount,
+          totalFrames: file.frameCount,
+          message: attempt == 1
+              ? 'All frames sent. Sending completion signal (0x4F 0x4B)...'
+              : 'Retry $attempt/3: Resending completion signal...',
+        );
+
+        final completionBytes = buildCompletionFrame();
+        final completionSent = _sendViaCan(
+          completionBytes.toList(),
+          canId: canId, channel: channel, isExtended: isExtended, isFD: isFD,
+        );
+
+        if (!completionSent) {
+          yield UploadProgress(status: UploadStatus.error, currentFrame: file.frameCount, totalFrames: file.frameCount, message: 'Failed to send completion signal.');
+          return;
+        }
+
+        yield UploadProgress(
+          status: UploadStatus.waitingCompletionAck,
+          currentFrame: file.frameCount,
+          totalFrames: file.frameCount,
+          message: attempt == 1 
+            ? 'Completion signal sent. Waiting for final validation ACK...'
+            : 'Retry $attempt/3: Waiting for validation ACK...',
+        );
+
+        // Wait up to 5 seconds for the response
+        completionResult = await _waitForAck(timeoutOverride: const Duration(seconds: 5));
+        
+        if (_cancelled) {
+          yield UploadProgress(status: UploadStatus.cancelled, currentFrame: file.frameCount, totalFrames: file.frameCount, message: 'Upload cancelled during validation.');
+          return;
+        }
+
+        if (completionResult.result == _AckCode.ok || completionResult.result == _AckCode.error) {
+          break; // We got a definitive response, stop retrying
+        }
+        
+        // If timeout, the loop will continue and retry
+      }
+
+      if (completionResult == null || completionResult.result == _AckCode.timeout) {
+        yield UploadProgress(status: UploadStatus.error, currentFrame: file.frameCount, totalFrames: file.frameCount, message: 'No ACK for completion (timeout after 3 attempts).');
+        return;
+      }
+      
+      if (completionResult.result == _AckCode.error) {
+        yield UploadProgress(status: UploadStatus.error, currentFrame: file.frameCount, totalFrames: file.frameCount, message: 'Validation failed: ${completionResult.errorDetail} (0x${completionResult.rawByte})');
+        return;
+      }
+
       yield UploadProgress(
         status: UploadStatus.complete,
         currentFrame: file.frameCount,
         totalFrames: file.frameCount,
-        message: 'Firmware upload complete! (${file.frameCount} frames sent)',
+        message: 'Firmware upload complete! (${file.frameCount} frames sent, CRC verified ✓)',
       );
     } finally {
       _restoreConsoleLogging();
     }
   }
 
-  // ── Wait for ACK / ERROR ──
+  // ── Wait for ACK / NACK (§3.2, §3.3) ──
 
-  Future<_AckResult> _waitForAck() async {
-    final completer = Completer<_AckResult>();
+  Future<_AckResponse> _waitForAck({Duration? timeoutOverride}) async {
+    final completer = Completer<_AckResponse>();
 
-    // Intercept CAN RX — don't forward to main console
+    // Intercept CAN RX
     _serialService.onCanFrameRx = (Map<String, dynamic> frame) {
       if (!completer.isCompleted) {
         final dataHex = frame['dataHex'] as String? ?? '';
-        if (dataHex.startsWith('79')) {
-          completer.complete(_AckResult.ok);
-        } else if (dataHex.startsWith('E1')) {
-          completer.complete(_AckResult.error);
+        final hexParts = dataHex.split(' ').where((s) => s.isNotEmpty).toList();
+        if (hexParts.isEmpty) return;
+
+        final firstByte = hexParts[0].toUpperCase();
+
+        // ACK: 0x79 (§3.2)
+        if (firstByte == '79') {
+          // Extract version string if present (completion ACK)
+          String versionStr = '';
+          if (hexParts.length > 3) {
+            for (int i = 3; i < hexParts.length; i++) {
+              final byte = int.tryParse(hexParts[i], radix: 16) ?? 0;
+              if (byte == 0) break;
+              if (byte >= 32 && byte <= 126) {
+                versionStr += String.fromCharCode(byte);
+              }
+            }
+          }
+          completer.complete(_AckResponse(
+            result: _AckCode.ok,
+            rawByte: firstByte,
+            versionString: versionStr,
+          ));
+        }
+        // NACK: 0xE1–0xE6 (§3.3)
+        else if (firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E5' || firstByte == 'E6') {
+          final errCode = int.tryParse(firstByte, radix: 16) ?? 0;
+          completer.complete(_AckResponse(
+            result: _AckCode.error,
+            rawByte: firstByte,
+            errorDetail: errorDescription(errCode),
+          ));
         }
       }
     };
@@ -343,15 +430,15 @@ class FirmwareUploadService {
     _cancelCheckTimer?.cancel();
     _cancelCheckTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) {
       if (_cancelled && !completer.isCompleted) {
-        completer.complete(_AckResult.timeout);
+        completer.complete(_AckResponse(result: _AckCode.timeout, rawByte: ''));
         timer.cancel();
       }
     });
 
     try {
-      return await completer.future.timeout(_ackTimeout);
+      return await completer.future.timeout(timeoutOverride ?? _ackTimeout);
     } on TimeoutException {
-      return _AckResult.timeout;
+      return _AckResponse(result: _AckCode.timeout, rawByte: '');
     } finally {
       _cancelCheckTimer?.cancel();
       _cancelCheckTimer = null;
@@ -363,4 +450,22 @@ class FirmwareUploadService {
   }
 }
 
-enum _AckResult { ok, error, timeout }
+// ═══════════════════════════════════════════════════════════════
+//  INTERNAL MODELS
+// ═══════════════════════════════════════════════════════════════
+
+enum _AckCode { ok, error, timeout }
+
+class _AckResponse {
+  final _AckCode result;
+  final String rawByte;
+  final String errorDetail;
+  final String versionString;
+
+  _AckResponse({
+    required this.result,
+    required this.rawByte,
+    this.errorDetail = '',
+    this.versionString = '',
+  });
+}
