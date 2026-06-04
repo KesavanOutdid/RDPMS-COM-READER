@@ -8,23 +8,31 @@ import 'firmware_upload_service.dart'; // crc16Modbus
 // ═══════════════════════════════════════════════════════════════
 
 enum BoardType {
-  all(0x00, 'All Boards'),
-  acVoltage(0x01, 'AC Voltage'),
-  acCurrent(0x02, 'AC Current'),
-  dcHighVoltage(0x03, 'DC High Voltage'),
-  dcLowVoltage(0x04, 'DC Low Voltage'),
-  dcHighCurrent(0x05, 'DC High Current'),
-  dcLowCurrent(0x06, 'DC Low Current'),
-  accelerometer(0x07, 'Accelerometer'),
-  digital(0x08, 'Digital');
+  all(0x00, 'All Boards', 'ALL'),
+  acVoltage(0x01, 'AC Voltage', 'AV'),
+  acCurrent(0x02, 'AC Current', 'AC'),
+  dcHighVoltage(0x03, 'DC High Voltage', 'DH'),
+  dcLowVoltage(0x04, 'DC Low Voltage', 'DL'),
+  dcHighCurrent(0x05, 'DC High Current', 'HI'),
+  dcLowCurrent(0x06, 'DC Low Current', 'LI'),
+  accelerometer(0x07, 'Accelerometer', 'AM'),
+  digital(0x08, 'Digital', 'DC');
 
   final int value;
   final String label;
-  const BoardType(this.value, this.label);
+  final String code;
+  const BoardType(this.value, this.label, this.code);
 
   static BoardType? fromValue(int val) {
     for (final bt in BoardType.values) {
       if (bt.value == val) return bt;
+    }
+    return null;
+  }
+
+  static BoardType? fromCode(String code) {
+    for (final bt in BoardType.values) {
+      if (bt.code.toUpperCase() == code.toUpperCase()) return bt;
     }
     return null;
   }
@@ -65,6 +73,7 @@ String errorDescription(int code) {
     case 0xE4: return 'Bin file size mismatch';
     case 0xE5: return 'Total frames mismatch';
     case 0xE6: return 'All frames not received';
+    case 0xE7: return 'Waiting for board selection';
     default:   return 'Unknown error (0x${code.toRadixString(16).toUpperCase()})';
   }
 }
@@ -315,40 +324,55 @@ class BulkFirmwareService {
         return; // Boot status noted but board will reply with version next
       }
 
-      // ── Firmware Version Response (§3.4) ──
-      // tx_buffer[0] = Board Type (0x01–0x08)
-      // tx_buffer[1] = DEVICE_CAN_ID (DIP switch value, 1–80)
-      // tx_buffer[2+] = BOOT_VERSION string (ASCII, null-terminated)
-      if (hexParts.length > 2) {
-        // Byte 0: Board Type
-        final boardType = firstByte;
+      // ── Firmware Version Response ──
+      // Byte 0-1: Board Type (2 ASCII characters, e.g. 'AV' or 'AC')
+      // Byte 2-3: Board Number (MSB, LSB)
+      // Byte 4: CAN ID
+      // Byte 5-9: Firmware Version (5 Bytes ASCII)
+      if (hexParts.length >= 10) {
+        final char1 = int.tryParse(hexParts[0], radix: 16) ?? 0;
+        final char2 = int.tryParse(hexParts[1], radix: 16) ?? 0;
+        
+        if (char1 >= 32 && char1 <= 126 && char2 >= 32 && char2 <= 126) {
+          final boardTypeCode = String.fromCharCodes([char1, char2]);
+          final boardType = BoardType.fromCode(boardTypeCode);
 
-        // Byte 1: Device CAN ID (DIP switch value)
-        final deviceId = int.tryParse(hexParts[1], radix: 16) ?? 0;
+          if (boardType != null) {
+            // Byte 2-3: Board Number (MSB & LSB)
+            final boardNoMsb = int.tryParse(hexParts[2], radix: 16) ?? 0;
+            final boardNoLsb = int.tryParse(hexParts[3], radix: 16) ?? 0;
+            final boardNo = (boardNoMsb << 8) | boardNoLsb;
 
-        // Byte 2+: Version string (ASCII, null-terminated)
-        String version = '';
-        for (int i = 2; i < hexParts.length; i++) {
-          final byte = int.tryParse(hexParts[i], radix: 16) ?? 0;
-          if (byte == 0) break;
-          if (byte >= 32 && byte <= 126) {
-            version += String.fromCharCode(byte);
-          } else {
-            break;
-          }
-        }
+            // Byte 4: CAN ID
+            final canIdVal = int.tryParse(hexParts[4], radix: 16) ?? 0;
 
-        // Validate: boardType must be 1–8 and version should contain '.'
-        if (boardType >= 1 && boardType <= 8 && version.contains('.')) {
-          // Avoid duplicates by deviceId
-          if (!boards.any((b) => b.deviceId == deviceId)) {
-            boards.add(DiscoveredBoard(
-              canId: canIdNum,
-              deviceId: deviceId,
-              boardTypeValue: boardType,
-              version: version.isEmpty ? 'Unknown' : version,
-              rawHex: hexParts.join(' '),
-            ));
+            // Byte 5-9: Version string (exactly 5 bytes)
+            String version = '';
+            for (int i = 5; i < 10; i++) {
+              final byte = int.tryParse(hexParts[i], radix: 16) ?? 0;
+              if (byte >= 32 && byte <= 126) {
+                version += String.fromCharCode(byte);
+              }
+            }
+            if (version.endsWith('.')) {
+              version += '0';
+            }
+
+            // Filter by targetBoardType:
+            // if targetBoardType == BoardType.all.value (0), we accept all.
+            // otherwise, only if boardType.value == targetBoardType.
+            if (targetBoardType == BoardType.all.value || boardType.value == targetBoardType) {
+              // Avoid duplicates by combination of boardNo (deviceId) and boardTypeValue
+              if (!boards.any((b) => b.deviceId == boardNo && b.boardTypeValue == boardType.value)) {
+                boards.add(DiscoveredBoard(
+                  canId: canIdNum,
+                  deviceId: boardNo,
+                  boardTypeValue: boardType.value,
+                  version: version.isEmpty ? 'Unknown' : version,
+                  rawHex: hexParts.join(' '),
+                ));
+              }
+            }
           }
         }
       }
@@ -425,7 +449,7 @@ class BulkFirmwareService {
         message: 'Sending Broadcast Header: $headerHex',
       );
 
-      final headerSent = _send8ByteFrame(
+      final headerSent = _send64ByteFrame(
         headerPayload,
         canId: txCanId,
         channel: channel,
@@ -466,12 +490,13 @@ class BulkFirmwareService {
 
       // Report ACK results back to the UI
       for (final ack in headerAcks) {
+        final canIdHex = '0x${ack.canId.toRadixString(16).toUpperCase().padLeft(3, '0')}';
         yield BulkUploadProgress(
           status: BulkUploadStatus.waitingHeaderAck,
           totalFrames: file.frameCount,
           message: ack.success
-              ? 'Node #${ack.deviceId} ACK \u2713 (RX: ${ack.rawHex})'
-              : 'Node #${ack.deviceId} NACK \u2717: ${ack.errorDetail} (RX: ${ack.rawHex})',
+              ? 'Node #${ack.deviceId} (${ack.boardTypeCode}, CAN ID: $canIdHex) ACK \u2713 (RX: ${ack.rawHex})'
+              : 'Node #${ack.deviceId} (${ack.boardTypeCode}, CAN ID: $canIdHex) NACK \u2717: ${ack.errorDetail} (RX: ${ack.rawHex})',
           boardCanId: ack.canId,
           boardSuccess: ack.success,
         );
@@ -660,9 +685,9 @@ class BulkFirmwareService {
         }
       }
 
-      final allCompletionAcks = <_CompletionAck>[];
+      final allCompletionAcksMap = <int, _CompletionAck>{};
       
-      for (int attempt = 1; attempt <= 1; attempt++) {
+      for (int attempt = 1; attempt <= 3; attempt++) {
         yield BulkUploadProgress(
           status: BulkUploadStatus.sendingCompletion,
           currentFrame: file.frameCount,
@@ -698,10 +723,10 @@ class BulkFirmwareService {
             : 'Retry $attempt/3: Waiting for boards to ACK...',
         );
 
-        // Figure out which ones we still need
-        final receivedIds = allCompletionAcks.map((a) => a.canId).toSet();
-        final remainingIds = selectedCanIds.difference(receivedIds);
-        if (remainingIds.isEmpty) break; // We already have all of them
+        // Figure out which ones we still need (only those that have not succeeded yet)
+        final succeededIds = allCompletionAcksMap.values.where((a) => a.success).map((a) => a.canId).toSet();
+        final remainingIds = selectedCanIds.difference(succeededIds);
+        if (remainingIds.isEmpty) break; // We already have success for all of them
 
         final completionAcks = await _waitForCompletionAcks(
           expectedCanIds: remainingIds,
@@ -709,7 +734,9 @@ class BulkFirmwareService {
           graceTimeoutSeconds: 5,
         );
 
-        allCompletionAcks.addAll(completionAcks);
+        for (final ack in completionAcks) {
+          allCompletionAcksMap[ack.canId] = ack;
+        }
 
         if (_cancelled) {
           yield BulkUploadProgress(
@@ -721,23 +748,24 @@ class BulkFirmwareService {
           return;
         }
 
-        final newReceivedIds = allCompletionAcks.map((a) => a.canId).toSet();
-        if (selectedCanIds.difference(newReceivedIds).isEmpty) {
-          break; // Got all ACKs
+        final newSucceededIds = allCompletionAcksMap.values.where((a) => a.success).map((a) => a.canId).toSet();
+        if (selectedCanIds.difference(newSucceededIds).isEmpty) {
+          break; // Got all successful ACKs
         }
       }
 
-      final completionAcks = allCompletionAcks;
+      final completionAcks = allCompletionAcksMap.values.toList();
 
       // Report ACK results back to the UI
       for (final ack in completionAcks) {
+        final canIdHex = '0x${ack.canId.toRadixString(16).toUpperCase().padLeft(3, '0')}';
         yield BulkUploadProgress(
           status: BulkUploadStatus.waitingCompletionAck,
           currentFrame: file.frameCount,
           totalFrames: file.frameCount,
           message: ack.success
-              ? 'Node #${ack.canId} ACK \u2713 (New Version: ${ack.newVersion})'
-              : 'Node #${ack.canId} NACK \u2717: ${ack.errorDetail} (RX: ${ack.rawHex})',
+              ? 'Node #${ack.boardNo} (${ack.boardTypeCode}, CAN ID: $canIdHex) ACK \u2713 (New Version: ${ack.newVersion}, RX: ${ack.rawHex})'
+              : 'Node #${ack.boardNo} (${ack.boardTypeCode}, CAN ID: $canIdHex) NACK \u2717: ${ack.errorDetail} (RX: ${ack.rawHex})',
           boardCanId: ack.canId,
           boardSuccess: ack.success,
           boardNewVersion: ack.success ? ack.newVersion : null,
@@ -776,24 +804,34 @@ class BulkFirmwareService {
 
   // ── Frame Builders ──
 
-  List<int> _buildHeaderPayload(BulkFirmwareFile file, int boardType) {
-    // New broadcast header format matching C firmware:
+  List<int> _buildHeaderPayload(BulkFirmwareFile file, int boardTypeValue) {
+    // New broadcast header format (9 bytes):
     // Byte 0: Mode (0x02)
-    // Byte 1: Target ID (Now sending Board Type instead of 0xFF)
-    // Byte 2-3: BIN Size (LE)
-    // Byte 4-5: Total Frames (LE)
-    // Byte 6-7: Total File CRC-16 (LE)
-    final payload = List<int>.filled(8, 0x00);
-    payload[0] = 0x02;                          // Mode: Header
-    payload[1] = boardType & 0xFF;               // Broadcast Target is now Board Type
-    payload[2] = file.fileSize & 0xFF;           // File Size LE low
-    payload[3] = (file.fileSize >> 8) & 0xFF;    // File Size LE high
-    payload[4] = file.frameCount & 0xFF;         // Frame Count LE low
-    payload[5] = (file.frameCount >> 8) & 0xFF;  // Frame Count LE high
+    // Byte 1-2: Board Type (2 ASCII characters, e.g. 'AV' or 'AC')
+    // Byte 3-4: BIN Size (LE)
+    // Byte 5-6: Total Frames (LE)
+    // Byte 7-8: Total File CRC-16 (LE)
+    final payload = List<int>.filled(9, 0x00);
+    payload[0] = 0x02; // Mode: Header
+    
+    final boardType = BoardType.fromValue(boardTypeValue) ?? BoardType.all;
+    final code = boardType.code;
+    if (code.length >= 2) {
+      payload[1] = code.codeUnitAt(0);
+      payload[2] = code.codeUnitAt(1);
+    } else {
+      payload[1] = 0x00;
+      payload[2] = 0x00;
+    }
+    
+    payload[3] = file.fileSize & 0xFF;           // File Size LE low
+    payload[4] = (file.fileSize >> 8) & 0xFF;    // File Size LE high
+    payload[5] = file.frameCount & 0xFF;         // Frame Count LE low
+    payload[6] = (file.frameCount >> 8) & 0xFF;  // Frame Count LE high
     
     // Store Total File CRC Little Endian
-    payload[6] = file.fileCrc & 0xFF;            // CRC LSB
-    payload[7] = (file.fileCrc >> 8) & 0xFF;     // CRC MSB
+    payload[7] = file.fileCrc & 0xFF;            // CRC LSB
+    payload[8] = (file.fileCrc >> 8) & 0xFF;     // CRC MSB
     
     return payload;
   }
@@ -849,26 +887,38 @@ class BulkFirmwareService {
       if (hexParts.isEmpty) return;
 
       final firstByte = hexParts[0].toUpperCase();
-      // ACK: 0x79, Errors: 0xE1–0xE5 (§3.2, §3.3)
-      if (firstByte == '79' || firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E6') {
+      // ACK: 0x79, Errors: 0xE1–0xE7
+      if (firstByte == '79' || firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E6' || firstByte == 'E7') {
         final canIdStr = frame['canId']?.toString() ?? '';
         final canIdNum = int.tryParse(
           canIdStr.replaceAll('0x', '').replaceAll(' ', ''),
           radix: 16,
         ) ?? 0;
 
-        // Byte 1: Board Type, Byte 2: Device CAN ID
-        final deviceId = hexParts.length > 2 ? (int.tryParse(hexParts[2], radix: 16) ?? 0) : 0;
+        // Byte 1-2: Board Type, Byte 3-4: Board Number (MSB, LSB), Byte 5: CAN ID
+        String boardTypeCode = 'UNKNOWN';
+        int deviceId = 0;
+        if (hexParts.length >= 6) {
+          final char1 = int.tryParse(hexParts[1], radix: 16) ?? 0;
+          final char2 = int.tryParse(hexParts[2], radix: 16) ?? 0;
+          if (char1 >= 32 && char1 <= 126 && char2 >= 32 && char2 <= 126) {
+            boardTypeCode = String.fromCharCodes([char1, char2]);
+          }
+          final boardNoMsb = int.tryParse(hexParts[3], radix: 16) ?? 0;
+          final boardNoLsb = int.tryParse(hexParts[4], radix: 16) ?? 0;
+          deviceId = (boardNoMsb << 8) | boardNoLsb;
+        }
 
         // Build error description for NACK codes
         final errorCode = int.tryParse(firstByte, radix: 16) ?? 0;
         final errDesc = firstByte != '79' ? errorDescription(errorCode) : '';
 
         // Ensure we don't add duplicates if a board spams ACKs
-        if (!acks.any((a) => a.deviceId == deviceId)) {
+        if (deviceId > 0 && !acks.any((a) => a.canId == canIdNum)) {
           acks.add(_BoardAck(
             canId: canIdNum,
             deviceId: deviceId,
+            boardTypeCode: boardTypeCode,
             success: firstByte == '79',
             rawHex: hexParts.join(' '),
             errorDetail: errDesc,
@@ -933,8 +983,8 @@ class BulkFirmwareService {
       if (hexParts.isEmpty) return;
 
       final firstByte = hexParts[0].toUpperCase();
-      // ACK: 0x79, All NACK codes: 0xE1–0xE5 (§3.2, §3.3)
-      if (firstByte == '79' || firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E6') {
+      // ACK: 0x79, All NACK codes: 0xE1–0xE7
+      if (firstByte == '79' || firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E6' || firstByte == 'E7') {
         final canIdStr = frame['canId']?.toString() ?? '';
         final canIdNum = int.tryParse(
           canIdStr.replaceAll('0x', '').replaceAll(' ', ''),
@@ -943,10 +993,24 @@ class BulkFirmwareService {
 
         // Only parse if it's one of our expected CAN IDs
         if (expectedCanIds.contains(canIdNum)) {
-          // Parse version if success (§3.2: 0x79 + board_type + CAN_ID + UPDATED_VERSION)
+          // Byte 1-2: Board Type, Byte 3-4: Board Number, Byte 5: CAN ID
+          String boardTypeCode = 'UNKNOWN';
+          int boardNo = 0;
+          if (hexParts.length >= 5) {
+            final char1 = int.tryParse(hexParts[1], radix: 16) ?? 0;
+            final char2 = int.tryParse(hexParts[2], radix: 16) ?? 0;
+            if (char1 >= 32 && char1 <= 126 && char2 >= 32 && char2 <= 126) {
+              boardTypeCode = String.fromCharCodes([char1, char2]);
+            }
+            final boardNoMsb = int.tryParse(hexParts[3], radix: 16) ?? 0;
+            final boardNoLsb = int.tryParse(hexParts[4], radix: 16) ?? 0;
+            boardNo = (boardNoMsb << 8) | boardNoLsb;
+          }
+
+          // Parse version if success: starts at byte 8 in new ACK format
           String newVersion = '';
           if (firstByte == '79') {
-            for (int i = 3; i < hexParts.length; i++) {
+            for (int i = 8; i < hexParts.length; i++) {
               final byte = int.tryParse(hexParts[i], radix: 16) ?? 0;
               if (byte == 0) break;
               if (byte >= 32 && byte <= 126) {
@@ -954,6 +1018,9 @@ class BulkFirmwareService {
               } else {
                 break;
               }
+            }
+            if (newVersion.endsWith('.')) {
+              newVersion += '0';
             }
           }
 
@@ -964,6 +1031,8 @@ class BulkFirmwareService {
           if (!acks.any((a) => a.canId == canIdNum)) {
             acks.add(_CompletionAck(
               canId: canIdNum,
+              boardNo: boardNo,
+              boardTypeCode: boardTypeCode,
               success: firstByte == '79',
               newVersion: newVersion.isEmpty ? 'Unknown' : newVersion,
               rawHex: hexParts.join(' '),
@@ -1069,21 +1138,33 @@ class ForceJumpResult {
 class _BoardAck {
   final int canId;
   final int deviceId;
+  final String boardTypeCode;
   final bool success;
   final String rawHex;
   final String errorDetail;
-  _BoardAck({required this.canId, required this.deviceId, required this.success, required this.rawHex, this.errorDetail = ''});
+  _BoardAck({
+    required this.canId,
+    required this.deviceId,
+    required this.boardTypeCode,
+    required this.success,
+    required this.rawHex,
+    this.errorDetail = '',
+  });
   String get canIdHex => '0x${canId.toRadixString(16).toUpperCase().padLeft(3, '0')}';
 }
 
 class _CompletionAck {
   final int canId;
+  final int boardNo;
+  final String boardTypeCode;
   final bool success;
   final String newVersion;
   final String rawHex;
   final String errorDetail;
   _CompletionAck({
     required this.canId,
+    required this.boardNo,
+    required this.boardTypeCode,
     required this.success,
     required this.newVersion,
     required this.rawHex,

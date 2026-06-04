@@ -29,7 +29,7 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
   late final FirmwareUploadService _uploadService;
   late final AnimationController _pulseController;
   final TextEditingController _canIdController = TextEditingController(text: '00 00 00 01');
-  final TextEditingController _delayController = TextEditingController(text: '0');
+  final TextEditingController _delayController = TextEditingController(text: '1');
 
   FirmwareFile? _firmwareFile;
   String? _selectedFilePath;

@@ -354,8 +354,8 @@ class FirmwareUploadService {
           return;
         }
 
-        if (completionResult.result == _AckCode.ok || completionResult.result == _AckCode.error) {
-          break; // We got a definitive response, stop retrying
+        if (completionResult.result == _AckCode.ok) {
+          break; // We got a successful ACK, stop retrying
         }
         
         // If timeout, the loop will continue and retry
@@ -400,13 +400,18 @@ class FirmwareUploadService {
         if (firstByte == '79') {
           // Extract version string if present (completion ACK)
           String versionStr = '';
-          if (hexParts.length > 3) {
-            for (int i = 3; i < hexParts.length; i++) {
+          if (hexParts.length > 8) {
+            for (int i = 8; i < hexParts.length; i++) {
               final byte = int.tryParse(hexParts[i], radix: 16) ?? 0;
               if (byte == 0) break;
               if (byte >= 32 && byte <= 126) {
                 versionStr += String.fromCharCode(byte);
+              } else {
+                break;
               }
+            }
+            if (versionStr.endsWith('.')) {
+              versionStr += '0';
             }
           }
           completer.complete(_AckResponse(
@@ -415,8 +420,8 @@ class FirmwareUploadService {
             versionString: versionStr,
           ));
         }
-        // NACK: 0xE1–0xE6 (§3.3)
-        else if (firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E5' || firstByte == 'E6') {
+        // NACK: 0xE1–0xE7
+        else if (firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E5' || firstByte == 'E6' || firstByte == 'E7') {
           final errCode = int.tryParse(firstByte, radix: 16) ?? 0;
           completer.complete(_AckResponse(
             result: _AckCode.error,

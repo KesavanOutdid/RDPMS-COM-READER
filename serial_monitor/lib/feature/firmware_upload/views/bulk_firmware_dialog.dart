@@ -50,7 +50,7 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
   Timer? _mockTimer;
 
   // Inter-frame delay
-  final TextEditingController _delayController = TextEditingController(text: '5');
+  final TextEditingController _delayController = TextEditingController(text: '1');
 
   final List<_LogEntry> _log = [];
   final ScrollController _logScrollController = ScrollController();
@@ -86,8 +86,11 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
   
   void _startMockScan() {
     _addLog('Starting mock CAN bus scan for ${_selectedBoardType.label}...', _LogLevel.info);
-    String typeHex = _selectedBoardType.value.toRadixString(16).padLeft(2, '0').toUpperCase();
-    _addLog('→ TX: 01 01 $typeHex 00 00 00 00 00', _LogLevel.tx);
+    
+    // Log the request header (matching the target Board Type code or value)
+    String typeCode = _selectedBoardType.code;
+    _addLog('→ TX: 01 01 $typeCode 00 00 00 00 00', _LogLevel.tx);
+    
     setState(() {
       _isScanning = true;
       _boards.clear();
@@ -99,16 +102,62 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
       
       int count = Random().nextInt(5) + 2; // 2 to 6 nodes
       List<DiscoveredBoard> mocks = [];
-      final boardTypes = [0x01, 0x02, 0x03, 0x05, 0x06];
-      for(int i=0; i<count; i++) {
-        final bt = boardTypes[i % boardTypes.length];
-        final devId = (bt - 1) * 10 + i + 1;
-        mocks.add(DiscoveredBoard(
-          canId: i + 1,
-          deviceId: devId,
-          boardTypeValue: bt,
-          version: 'v2.${Random().nextInt(5)}.${Random().nextInt(9)}'
-        ));
+      
+      if (_selectedBoardType == BoardType.all) {
+        final testTypes = [
+          BoardType.digital,
+          BoardType.acVoltage,
+          BoardType.dcHighVoltage,
+          BoardType.acCurrent,
+        ];
+        final testBoardNos = [1, 1, 2, 3];
+        final testCanIds = [0x31, 0x32, 0x33, 0x34];
+        
+        for (int i = 0; i < testTypes.length; i++) {
+          final bt = testTypes[i];
+          final boardNo = testBoardNos[i];
+          final canId = testCanIds[i];
+          final verStr = '1.0.0';
+          
+          final char1Hex = bt.code.codeUnitAt(0).toRadixString(16).padLeft(2, '0').toUpperCase();
+          final char2Hex = bt.code.codeUnitAt(1).toRadixString(16).padLeft(2, '0').toUpperCase();
+          final boardNoMsbHex = ((boardNo >> 8) & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+          final boardNoLsbHex = (boardNo & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+          final canIdHex = canId.toRadixString(16).padLeft(2, '0').toUpperCase();
+          final verHex = verStr.codeUnits.map((c) => c.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ');
+
+          final rawHex = '$char1Hex $char2Hex $boardNoMsbHex $boardNoLsbHex $canIdHex $verHex';
+          mocks.add(DiscoveredBoard(
+            canId: canId,
+            deviceId: boardNo,
+            boardTypeValue: bt.value,
+            version: verStr,
+            rawHex: rawHex,
+          ));
+        }
+      } else {
+        for (int i = 0; i < count; i++) {
+          final bt = _selectedBoardType;
+          final boardNo = i + 1;
+          final canId = 0x31 + i;
+          final verStr = '1.0.0';
+          
+          final char1Hex = bt.code.codeUnitAt(0).toRadixString(16).padLeft(2, '0').toUpperCase();
+          final char2Hex = bt.code.codeUnitAt(1).toRadixString(16).padLeft(2, '0').toUpperCase();
+          final boardNoMsbHex = ((boardNo >> 8) & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+          final boardNoLsbHex = (boardNo & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+          final canIdHex = canId.toRadixString(16).padLeft(2, '0').toUpperCase();
+          final verHex = verStr.codeUnits.map((c) => c.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ');
+
+          final rawHex = '$char1Hex $char2Hex $boardNoMsbHex $boardNoLsbHex $canIdHex $verHex';
+          mocks.add(DiscoveredBoard(
+            canId: canId,
+            deviceId: boardNo,
+            boardTypeValue: bt.value,
+            version: verStr,
+            rawHex: rawHex,
+          ));
+        }
       }
       
       setState(() {
@@ -117,10 +166,7 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
         _statusMessage = 'Found ${_boards.length} nodes.';
         _addLog('Found ${_boards.length} nodes on CAN bus.', _LogLevel.success);
         for(var b in _boards) {
-          String typeHexB = b.boardTypeValue.toRadixString(16).padLeft(2, '0').toUpperCase();
-          String devIdHexB = b.deviceId.toRadixString(16).padLeft(2, '0').toUpperCase();
-          String versionHex = b.version.codeUnits.map((c) => c.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ');
-          _addLog('← RX [Node ${b.deviceIdStr}]: $typeHexB $devIdHexB $versionHex 00', _LogLevel.rx);
+          _addLog('← RX [Node ${b.deviceIdStr}]: ${b.rawHex}', _LogLevel.rx);
         }
       });
     });
@@ -158,7 +204,20 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
       return;
     }
 
-    _addLog('→ TX: 02 00 00 [Size] [Frames] [CRC] [Board] ... (Header)', _LogLevel.tx);
+    final selectedBoard = selectedBoards.first;
+    final bt = BoardType.fromValue(selectedBoard.boardTypeValue) ?? BoardType.all;
+    final file = _firmwareFile!;
+    final sizeLow = (file.fileSize & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+    final sizeHigh = ((file.fileSize >> 8) & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+    final framesLow = (file.frameCount & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+    final framesHigh = ((file.frameCount >> 8) & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+    final crcLow = (file.fileCrc & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+    final crcHigh = ((file.fileCrc >> 8) & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+    final char1Hex = bt.code.codeUnitAt(0).toRadixString(16).padLeft(2, '0').toUpperCase();
+    final char2Hex = bt.code.codeUnitAt(1).toRadixString(16).padLeft(2, '0').toUpperCase();
+    final mockHeaderHex = '02 $char1Hex $char2Hex $sizeLow $sizeHigh $framesLow $framesHigh $crcLow $crcHigh';
+
+    _addLog('→ TX: $mockHeaderHex (Header)', _LogLevel.tx);
     
     setState(() {
       _isUploading = true;
@@ -187,7 +246,14 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
            for (var b in selectedBoards) {
              b.status = BoardOtaStatus.uploading;
              b.statusMessage = 'Header OK';
-             _addLog('← RX [Node ${b.canIdHex}]: 79 00 ... (Header ACK)', _LogLevel.success);
+             
+             final boardNoMsbHex = ((b.deviceId >> 8) & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+             final boardNoLsbHex = (b.deviceId & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+             final boardType = BoardType.fromValue(b.boardTypeValue) ?? BoardType.all;
+             final char1Hex = boardType.code.codeUnitAt(0).toRadixString(16).padLeft(2, '0').toUpperCase();
+             final char2Hex = boardType.code.codeUnitAt(1).toRadixString(16).padLeft(2, '0').toUpperCase();
+             
+             _addLog('← RX [Node ${b.canIdHex}]: 79 $char1Hex $char2Hex $boardNoMsbHex $boardNoLsbHex 00 (Header ACK)', _LogLevel.success);
            }
         }
         
@@ -228,13 +294,16 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
               
               for (int i = 0; i < selectedBoards.length; i++) {
                 final b = selectedBoards[i];
-                final btHex = b.boardTypeValue.toRadixString(16).padLeft(2, '0').toUpperCase();
-                final devHex = b.deviceId.toRadixString(16).padLeft(2, '0').toUpperCase();
+                final boardNoMsbHex = ((b.deviceId >> 8) & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+                final boardNoLsbHex = (b.deviceId & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+                final boardType = BoardType.fromValue(b.boardTypeValue) ?? BoardType.all;
+                final char1Hex = boardType.code.codeUnitAt(0).toRadixString(16).padLeft(2, '0').toUpperCase();
+                final char2Hex = boardType.code.codeUnitAt(1).toRadixString(16).padLeft(2, '0').toUpperCase();
 
                 if (i > 0 && Random().nextInt(10) > 7) { // ~20% chance to fail subsequent boards
                   b.status = BoardOtaStatus.error;
                   b.statusMessage = 'Failed (0xE1)';
-                  _addLog('← RX [Node ${b.canIdHex}]: E1 $btHex $devHex 00 ... (Error)', _LogLevel.error);
+                  _addLog('← RX [Node ${b.canIdHex}]: E1 $char1Hex $char2Hex $boardNoMsbHex $boardNoLsbHex 00 (Error)', _LogLevel.error);
                 } else {
                   b.status = BoardOtaStatus.success;
                   b.statusMessage = 'Success';
@@ -249,14 +318,14 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
                     final major = int.parse(match.group(1)!);
                     final minor = int.parse(match.group(2)!);
                     final patch = int.parse(match.group(3)!);
-                    newVer = 'v$major.${minor + 1}.$patch';
+                    newVer = '$major.${minor + 1}.$patch';
                   } else {
-                    newVer = '$oldVer.1';
+                    newVer = '1.1.0';
                   }
                   b.version = newVer;
                   
                   String verHex = newVer.codeUnits.map((c) => c.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ');
-                  _addLog('← RX [Node ${b.canIdHex}]: 79 $btHex $devHex $verHex 00 ... (Complete + Ver: $newVer)', _LogLevel.success);
+                  _addLog('← RX [Node ${b.canIdHex}]: 79 $char1Hex $char2Hex $boardNoMsbHex $boardNoLsbHex 00 00 00 $verHex (Complete + Ver: $newVer)', _LogLevel.success);
                 }
               }
               _addLog('Mock Bulk OTA Complete', _LogLevel.success);
@@ -282,12 +351,32 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
     setState(() {
       if (_mockCurrentFrame == 0) {
         // Send Broadcast Header (Mock)
-        _addLog('→ TX: 02 00 00 [Size] [Frames] [CRC] [Board] ... (Header)', _LogLevel.tx);
+        final selectedBoard = _mockSelectedBoards.first;
+        final bt = BoardType.fromValue(selectedBoard.boardTypeValue) ?? BoardType.all;
+        final file = _firmwareFile!;
+        final sizeLow = (file.fileSize & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+        final sizeHigh = ((file.fileSize >> 8) & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+        final framesLow = (file.frameCount & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+        final framesHigh = ((file.frameCount >> 8) & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+        final crcLow = (file.fileCrc & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+        final crcHigh = ((file.fileCrc >> 8) & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+        final char1Hex = bt.code.codeUnitAt(0).toRadixString(16).padLeft(2, '0').toUpperCase();
+        final char2Hex = bt.code.codeUnitAt(1).toRadixString(16).padLeft(2, '0').toUpperCase();
+        final mockHeaderHex = '02 $char1Hex $char2Hex $sizeLow $sizeHigh $framesLow $framesHigh $crcLow $crcHigh';
+
+        _addLog('→ TX: $mockHeaderHex (Header)', _LogLevel.tx);
         
         for (var b in _mockSelectedBoards) {
           b.status = BoardOtaStatus.uploading;
           b.statusMessage = 'Header OK';
-          _addLog('← RX [Node ${b.canIdHex}]: 79 00 ... (Header ACK)', _LogLevel.success);
+          
+          final boardNoMsbHex = ((b.deviceId >> 8) & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+          final boardNoLsbHex = (b.deviceId & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+          final boardType = BoardType.fromValue(b.boardTypeValue) ?? BoardType.all;
+          final char1Hex = boardType.code.codeUnitAt(0).toRadixString(16).padLeft(2, '0').toUpperCase();
+          final char2Hex = boardType.code.codeUnitAt(1).toRadixString(16).padLeft(2, '0').toUpperCase();
+          
+          _addLog('← RX [Node ${b.canIdHex}]: 79 $char1Hex $char2Hex $boardNoMsbHex $boardNoLsbHex 00 (Header ACK)', _LogLevel.success);
         }
         
         _mockCurrentFrame = 1;
@@ -333,13 +422,16 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
             
             for (int i = 0; i < _mockSelectedBoards.length; i++) {
               final b = _mockSelectedBoards[i];
-              final btHex = b.boardTypeValue.toRadixString(16).padLeft(2, '0').toUpperCase();
-              final devHex = b.deviceId.toRadixString(16).padLeft(2, '0').toUpperCase();
+              final boardNoMsbHex = ((b.deviceId >> 8) & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+              final boardNoLsbHex = (b.deviceId & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
+              final boardType = BoardType.fromValue(b.boardTypeValue) ?? BoardType.all;
+              final char1Hex = boardType.code.codeUnitAt(0).toRadixString(16).padLeft(2, '0').toUpperCase();
+              final char2Hex = boardType.code.codeUnitAt(1).toRadixString(16).padLeft(2, '0').toUpperCase();
 
               if (i > 0 && Random().nextInt(10) > 7) { // ~20% chance to fail subsequent boards
                 b.status = BoardOtaStatus.error;
                 b.statusMessage = 'Failed (0xE1)';
-                _addLog('← RX [Node ${b.canIdHex}]: E1 $btHex $devHex 00 ... (Error)', _LogLevel.error);
+                _addLog('← RX [Node ${b.canIdHex}]: E1 $char1Hex $char2Hex $boardNoMsbHex $boardNoLsbHex 00 (Error)', _LogLevel.error);
               } else {
                 b.status = BoardOtaStatus.success;
                 b.statusMessage = 'Success';
@@ -354,14 +446,14 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
                   final major = int.parse(match.group(1)!);
                   final minor = int.parse(match.group(2)!);
                   final patch = int.parse(match.group(3)!);
-                  newVer = 'v$major.${minor + 1}.$patch';
+                  newVer = '$major.${minor + 1}.${patch}';
                 } else {
-                  newVer = '$oldVer.1';
+                  newVer = '1.1.0';
                 }
                 b.version = newVer;
                 
                 String verHex = newVer.codeUnits.map((c) => c.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ');
-                _addLog('← RX [Node ${b.canIdHex}]: 79 $btHex $devHex $verHex 00 ... (Complete + Ver: $newVer)', _LogLevel.success);
+                _addLog('← RX [Node ${b.canIdHex}]: 79 $char1Hex $char2Hex $boardNoMsbHex $boardNoLsbHex 00 00 00 $verHex (Complete + Ver: $newVer)', _LogLevel.success);
               }
             }
             _addLog('Mock Bulk OTA Complete', _LogLevel.success);
@@ -548,12 +640,15 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
            _addLog('⏳ ${progress.message}', _LogLevel.info);
         } else if (progress.boardCanId != null) {
            final isBoardSelected = _boards.any((b) => b.canId == progress.boardCanId && b.selected);
-           if (!isBoardSelected) {
-             _addLog('← ${progress.message} (Ignored)', _LogLevel.info);
-           } else if (progress.boardSuccess == true) {
-             _addLog('← ${progress.message}', _LogLevel.success);
+           if (progress.boardSuccess == false) {
+             final suffix = isBoardSelected ? '' : ' (Ignored)';
+             _addLog('← ${progress.message}$suffix', _LogLevel.error);
            } else {
-             _addLog('← ${progress.message}', _LogLevel.error);
+             if (!isBoardSelected) {
+               _addLog('← ${progress.message} (Ignored)', _LogLevel.info);
+             } else {
+               _addLog('← ${progress.message}', _LogLevel.success);
+             }
            }
         } else if (progress.status == BulkUploadStatus.complete) {
            _addLog('✅ ${progress.message}', _LogLevel.success);
@@ -769,7 +864,7 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
                                           const SizedBox(width: 4),
                                           Icon(icon, size: 14, color: statusColor),
                                           const SizedBox(width: 4),
-                                          Expanded(child: Text('Node ${b.deviceIdStr}', style: GoogleFonts.jetBrainsMono(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.textPrimary))),
+                                          Expanded(child: Text('Node ${b.deviceIdStr} (${b.canIdHex})', style: GoogleFonts.jetBrainsMono(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.textPrimary))),
                                         ],
                                       ),
                                       const SizedBox(height: 2),
