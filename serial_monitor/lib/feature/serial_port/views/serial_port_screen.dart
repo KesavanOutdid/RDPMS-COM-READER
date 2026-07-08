@@ -11,6 +11,7 @@ import '../../../utils/theme/app_theme.dart';
 import 'tab_view.dart';
 import '../../firmware_upload/views/firmware_upload_dialog.dart';
 import '../../firmware_upload/views/bulk_firmware_dialog.dart';
+import 'calibration_dialog.dart';
 
 /// Docklight-style serial monitor screen.
 /// Left pane: Send Sequences (full height)
@@ -27,11 +28,34 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
   static const double _minSidebarWidth = 180;
   static const double _maxSidebarWidth = 500;
   bool _isDragging = false;
+  bool? _wasConnected;
 
   @override
   Widget build(BuildContext context) {
     return Consumer<PortController>(
       builder: (context, controller, _) {
+        // Detect disconnection to raise SnackBar and close open overlay forms/dialogs back to home page
+        if (_wasConnected == true && !controller.isConnected) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'USB Device disconnected!',
+                    style: GoogleFonts.inter(fontSize: 12),
+                  ),
+                  backgroundColor: AppTheme.errorColor,
+                  duration: const Duration(seconds: 4),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            }
+          });
+        }
+        _wasConnected = controller.isConnected;
+
         // Show error snackbar when new error occurs (#13)
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (controller.lastError != null && mounted) {
@@ -370,6 +394,39 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
                     side: BorderSide(
                       color: isFdMode
                           ? AppTheme.accentCyan.withValues(alpha: 0.5)
+                          : AppTheme.borderColor,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(width: 6),
+          SizedBox(
+            height: 30,
+            child: Builder(
+              builder: (context) {
+                final isConnected = controller.isConnected;
+                return OutlinedButton.icon(
+                  onPressed: isConnected
+                      ? () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => CalibrationDialog(
+                                serialService: controller.service,
+                                isFD: controller.canConfig.canType == CanType.canFd,
+                                channel: controller.canConfig.channel.value,
+                              ),
+                            ),
+                          )
+                      : null,
+                  icon: const Icon(Icons.tune_rounded, size: 14),
+                  label: Text('Calibration', style: GoogleFonts.inter(fontSize: 11)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.primaryColor,
+                    side: BorderSide(
+                      color: isConnected
+                          ? AppTheme.primaryColor.withValues(alpha: 0.5)
                           : AppTheme.borderColor,
                     ),
                     padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -2165,46 +2222,52 @@ Future<void> _showEditSendSequenceDialog(
                                   Row(
                                     children: [
                                       Expanded(
-                                        child: CheckboxListTile(
-                                          value: idIncrementEnabled,
-                                          onChanged: (value) {
-                                            setState(
-                                              () =>
-                                                  idIncrementEnabled =
-                                                      value ?? false,
-                                            );
-                                          },
-                                          contentPadding: EdgeInsets.zero,
-                                          dense: true,
-                                          controlAffinity:
-                                              ListTileControlAffinity.leading,
-                                          title: Text(
-                                            'ID Increment',
-                                            style: GoogleFonts.inter(
-                                              fontSize: 12,
+                                        child: Material(
+                                          color: Colors.transparent,
+                                          child: CheckboxListTile(
+                                            value: idIncrementEnabled,
+                                            onChanged: (value) {
+                                              setState(
+                                                () =>
+                                                    idIncrementEnabled =
+                                                        value ?? false,
+                                              );
+                                            },
+                                            contentPadding: EdgeInsets.zero,
+                                            dense: true,
+                                            controlAffinity:
+                                                ListTileControlAffinity.leading,
+                                            title: Text(
+                                              'ID Increment',
+                                              style: GoogleFonts.inter(
+                                                fontSize: 12,
+                                              ),
                                             ),
                                           ),
                                         ),
                                       ),
                                       const SizedBox(width: 12),
                                       Expanded(
-                                        child: CheckboxListTile(
-                                          value: dataIncrementEnabled,
-                                          onChanged: (value) {
-                                            setState(
-                                              () =>
-                                                  dataIncrementEnabled =
-                                                      value ?? false,
-                                            );
-                                          },
-                                          contentPadding: EdgeInsets.zero,
-                                          dense: true,
-                                          controlAffinity:
-                                              ListTileControlAffinity.leading,
-                                          title: Text(
-                                            'Data Increment',
-                                            style: GoogleFonts.inter(
-                                              fontSize: 12,
+                                        child: Material(
+                                          color: Colors.transparent,
+                                          child: CheckboxListTile(
+                                            value: dataIncrementEnabled,
+                                            onChanged: (value) {
+                                              setState(
+                                                () =>
+                                                    dataIncrementEnabled =
+                                                        value ?? false,
+                                              );
+                                            },
+                                            contentPadding: EdgeInsets.zero,
+                                            dense: true,
+                                            controlAffinity:
+                                                ListTileControlAffinity.leading,
+                                            title: Text(
+                                              'Data Increment',
+                                              style: GoogleFonts.inter(
+                                                fontSize: 12,
+                                              ),
                                             ),
                                           ),
                                         ),

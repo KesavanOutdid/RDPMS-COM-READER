@@ -741,21 +741,6 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
             color: AppTheme.textBright,
           ),
         ),
-        actions: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Mock Mode', style: GoogleFonts.inter(color: AppTheme.textSecondary, fontSize: 12)),
-              const SizedBox(width: 4),
-              Switch(
-                value: _isMockMode, 
-                onChanged: _isUploading || _isScanning ? null : (v) => setState(() => _isMockMode = v),
-                activeColor: AppTheme.accentOrange,
-              ),
-              const SizedBox(width: 16),
-            ],
-          ),
-        ],
       ),
       body: SafeArea(
         child: Padding(
@@ -952,18 +937,8 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
                     ],
                     ElevatedButton.icon(
                       onPressed: () {
-                        if (_isMockMode) {
-                          _mockTimer?.cancel();
-                          setState(() {
-                            _isUploading = false;
-                            _waitingForManualTrigger = false;
-                            _statusMessage = 'Mock Upload Cancelled';
-                            _addLog('Mock upload cancelled by user.', _LogLevel.warning);
-                          });
-                        } else {
-                          _service.cancel();
-                          _addLog('Cancellation requested by user.', _LogLevel.warning);
-                        }
+                        _service.cancel();
+                        _addLog('Cancellation requested by user.', _LogLevel.warning);
                       },
                       icon: const Icon(Icons.stop),
                       label: const Text('Stop OTA'),
@@ -1010,7 +985,21 @@ class _BulkFirmwareDialogState extends State<BulkFirmwareDialog> {
               const SizedBox(width: 10),
               InkWell(
                 onTap: () => setState(() => _log.clear()),
-                child: const Icon(Icons.delete_outline, size: 14, color: Color(0xFFEF4444)),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.delete_outline, size: 16, color: Color(0xFFEF4444)),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Clear',
+                      style: GoogleFonts.inter(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFFEF4444),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ]),
           ),

@@ -887,8 +887,10 @@ class BulkFirmwareService {
       if (hexParts.isEmpty) return;
 
       final firstByte = hexParts[0].toUpperCase();
-      // ACK: 0x79, Errors: 0xE1–0xE7
-      if (firstByte == '79' || firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E6' || firstByte == 'E7') {
+      final secondByte = hexParts.length >= 2 ? hexParts[1].toUpperCase() : '';
+      final isAck = firstByte == '79' || (firstByte == '4F' && secondByte == '4B');
+      // ACK: 0x79 or 0x4F4B (OK), Errors: 0xE1–0xE7
+      if (isAck || firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E6' || firstByte == 'E7') {
         final canIdStr = frame['canId']?.toString() ?? '';
         final canIdNum = int.tryParse(
           canIdStr.replaceAll('0x', '').replaceAll(' ', ''),
@@ -911,7 +913,7 @@ class BulkFirmwareService {
 
         // Build error description for NACK codes
         final errorCode = int.tryParse(firstByte, radix: 16) ?? 0;
-        final errDesc = firstByte != '79' ? errorDescription(errorCode) : '';
+        final errDesc = !isAck ? errorDescription(errorCode) : '';
 
         // Ensure we don't add duplicates if a board spams ACKs
         if (deviceId > 0 && !acks.any((a) => a.canId == canIdNum)) {
@@ -919,7 +921,7 @@ class BulkFirmwareService {
             canId: canIdNum,
             deviceId: deviceId,
             boardTypeCode: boardTypeCode,
-            success: firstByte == '79',
+            success: isAck,
             rawHex: hexParts.join(' '),
             errorDetail: errDesc,
           ));
@@ -983,8 +985,10 @@ class BulkFirmwareService {
       if (hexParts.isEmpty) return;
 
       final firstByte = hexParts[0].toUpperCase();
-      // ACK: 0x79, All NACK codes: 0xE1–0xE7
-      if (firstByte == '79' || firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E6' || firstByte == 'E7') {
+      final secondByte = hexParts.length >= 2 ? hexParts[1].toUpperCase() : '';
+      final isAck = firstByte == '79' || (firstByte == '4F' && secondByte == '4B');
+      // ACK: 0x79 or 0x4F4B (OK), All NACK codes: 0xE1–0xE7
+      if (isAck || firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E6' || firstByte == 'E7') {
         final canIdStr = frame['canId']?.toString() ?? '';
         final canIdNum = int.tryParse(
           canIdStr.replaceAll('0x', '').replaceAll(' ', ''),
@@ -1009,7 +1013,7 @@ class BulkFirmwareService {
 
           // Parse version if success: starts at byte 8 in new ACK format
           String newVersion = '';
-          if (firstByte == '79') {
+          if (isAck) {
             for (int i = 8; i < hexParts.length; i++) {
               final byte = int.tryParse(hexParts[i], radix: 16) ?? 0;
               if (byte == 0) break;
@@ -1026,14 +1030,14 @@ class BulkFirmwareService {
 
           // Build error description for NACK codes
           final errorCode = int.tryParse(firstByte, radix: 16) ?? 0;
-          final errDesc = firstByte != '79' ? errorDescription(errorCode) : '';
+          final errDesc = !isAck ? errorDescription(errorCode) : '';
 
           if (!acks.any((a) => a.canId == canIdNum)) {
             acks.add(_CompletionAck(
               canId: canIdNum,
               boardNo: boardNo,
               boardTypeCode: boardTypeCode,
-              success: firstByte == '79',
+              success: isAck,
               newVersion: newVersion.isEmpty ? 'Unknown' : newVersion,
               rawHex: hexParts.join(' '),
               errorDetail: errDesc,

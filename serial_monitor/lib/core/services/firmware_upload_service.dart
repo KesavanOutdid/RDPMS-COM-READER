@@ -395,9 +395,10 @@ class FirmwareUploadService {
         if (hexParts.isEmpty) return;
 
         final firstByte = hexParts[0].toUpperCase();
+        final secondByte = hexParts.length >= 2 ? hexParts[1].toUpperCase() : '';
 
-        // ACK: 0x79 (§3.2)
-        if (firstByte == '79') {
+        // ACK: 0x79 or 0x4F4B (OK) (§3.2)
+        if (firstByte == '79' || (firstByte == '4F' && secondByte == '4B')) {
           // Extract version string if present (completion ACK)
           String versionStr = '';
           if (hexParts.length > 8) {

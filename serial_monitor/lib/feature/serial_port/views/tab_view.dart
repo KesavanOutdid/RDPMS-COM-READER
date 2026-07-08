@@ -250,6 +250,41 @@ class _TabViewWidgetState extends State<TabViewWidget> {
               ? constraints.maxWidth
               : minTotalWidth;
 
+          if (displayMessages.isEmpty) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildTableHeader(),
+                Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          tab.filterQuery.isNotEmpty
+                              ? Icons.filter_list_off
+                              : Icons.monitor_outlined,
+                          size: 32,
+                          color: AppTheme.textMuted.withValues(alpha: 0.4),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          tab.filterQuery.isNotEmpty
+                              ? 'No matching messages'
+                              : 'No communication data yet',
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            color: AppTheme.textMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+
           final content = Scrollbar(
             controller: _horizontalScrollController,
             thumbVisibility: true,
@@ -267,65 +302,36 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                   children: [
                     _buildTableHeader(),
                     Expanded(
-                      child: displayMessages.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    tab.filterQuery.isNotEmpty
-                                        ? Icons.filter_list_off
-                                        : Icons.monitor_outlined,
-                                    size: 32,
-                                    color: AppTheme.textMuted.withValues(alpha: 0.4),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    tab.filterQuery.isNotEmpty
-                                        ? 'No matching messages'
-                                        : 'No communication data yet',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 12,
-                                      color: AppTheme.textMuted,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : NotificationListener<ScrollNotification>(
-                              onNotification: (ScrollNotification notification) {
-                                if (notification is ScrollUpdateNotification) {
-                                  final metrics = notification.metrics;
-                                  if (metrics.axis == Axis.vertical) {
-                                    tab.autoScroll = metrics.pixels >= metrics.maxScrollExtent - 20;
-                                  }
-                                }
-                                return false;
-                              },
-                              child: ListView.builder(
-                                controller: _scrollController,
-                                padding: EdgeInsets.zero,
-                                itemCount: displayMessages.length,
-                                itemBuilder: (context, index) {
-                                  return _MessageRowWithContextMenu(
-                                    message: displayMessages[index],
-                                    displayFormat: tab.displayFormat,
-                                    index: index + 1,
-                                    isEven: index % 2 == 0,
-                                  );
-                                },
-                              ),
-                            ),
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: (ScrollNotification notification) {
+                          if (notification is ScrollUpdateNotification) {
+                            final metrics = notification.metrics;
+                            if (metrics.axis == Axis.vertical) {
+                              tab.autoScroll = metrics.pixels >= metrics.maxScrollExtent - 20;
+                            }
+                          }
+                          return false;
+                        },
+                        child: ListView.builder(
+                          controller: _scrollController,
+                          padding: EdgeInsets.zero,
+                          itemCount: displayMessages.length,
+                          itemBuilder: (context, index) {
+                            return _MessageRowWithContextMenu(
+                              message: displayMessages[index],
+                              displayFormat: tab.displayFormat,
+                              index: index + 1,
+                              isEven: index % 2 == 0,
+                            );
+                          },
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
           );
-
-          if (displayMessages.isEmpty) {
-            return content;
-          }
 
           return Scrollbar(
             controller: _scrollController,

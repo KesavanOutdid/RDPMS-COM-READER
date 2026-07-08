@@ -692,7 +692,21 @@ class _FirmwareUploadDialogState extends State<FirmwareUploadDialog>
                 const SizedBox(width: 10),
                 InkWell(
                   onTap: () => setState(() => _log.clear()),
-                  child: const Icon(Icons.delete_outline, size: 14, color: Color(0xFFEF4444)),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.delete_outline, size: 16, color: Color(0xFFEF4444)),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Clear',
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFFEF4444),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
