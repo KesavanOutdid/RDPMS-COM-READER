@@ -21,14 +21,23 @@ class TabViewWidget extends StatefulWidget {
 class _TabViewWidgetState extends State<TabViewWidget> {
   final ScrollController _scrollController = ScrollController();
   final ScrollController _horizontalScrollController = ScrollController();
-  final TextEditingController _searchController = TextEditingController();
-  bool _showSearch = false;
+  final TextEditingController _frameIdController = TextEditingController();
+
+  String _localFrameId = '';
+  String _localDirection = 'All';
+  String _localChannel = 'All';
+  bool _initialized = false;
+
+  int? _lastTabIndex;
+  String? _lastAppliedFrameId;
+  String? _lastAppliedDirection;
+  String? _lastAppliedChannel;
 
   @override
   void dispose() {
     _scrollController.dispose();
     _horizontalScrollController.dispose();
-    _searchController.dispose();
+    _frameIdController.dispose();
     super.dispose();
   }
 
@@ -57,6 +66,30 @@ class _TabViewWidgetState extends State<TabViewWidget> {
     }
   }
 
+  void _applyFilters(PortController controller) {
+    debugPrint('TAB_VIEW: _applyFilters clicked. localFrameId: "$_localFrameId", localDirection: "$_localDirection", localChannel: "$_localChannel"');
+    _lastAppliedFrameId = _localFrameId;
+    _lastAppliedDirection = _localDirection;
+    _lastAppliedChannel = _localChannel;
+    controller.setFilterFrameId(widget.tabIndex, _localFrameId);
+    controller.setFilterDirection(widget.tabIndex, _localDirection);
+    controller.setFilterChannel(widget.tabIndex, _localChannel);
+  }
+
+  void _clearFilters(PortController controller) {
+    debugPrint('TAB_VIEW: _clearFilters clicked.');
+    setState(() {
+      _localFrameId = '';
+      _localDirection = 'All';
+      _localChannel = 'All';
+      _frameIdController.clear();
+      _lastAppliedFrameId = '';
+      _lastAppliedDirection = 'All';
+      _lastAppliedChannel = 'All';
+    });
+    controller.clearAllFilters(widget.tabIndex);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<PortController>(
@@ -67,7 +100,29 @@ class _TabViewWidgetState extends State<TabViewWidget> {
 
         final tab = controller.tabs[widget.tabIndex];
 
-        if (tab.autoScroll && tab.messages.isNotEmpty && !_showSearch) {
+        // Sync local UI state with tab state if they don't match (e.g. from tab switch or context menu)
+        final bool tabChanged = _lastTabIndex != widget.tabIndex;
+        final bool modelChangedFromOutside = _lastAppliedFrameId != tab.filterFrameId ||
+            _lastAppliedDirection != tab.filterDirection ||
+            _lastAppliedChannel != tab.filterChannel;
+
+        debugPrint('TAB_VIEW build: tabIndex: ${widget.tabIndex}, tabChanged: $tabChanged, modelChangedFromOutside: $modelChangedFromOutside, tab.filterFrameId: "${tab.filterFrameId}", tab.filterDirection: "${tab.filterDirection}", tab.filterChannel: "${tab.filterChannel}"');
+
+        if (!_initialized || tabChanged || modelChangedFromOutside) {
+          debugPrint('TAB_VIEW syncing local state with tab model. Previous localFrameId: "$_localFrameId", New: "${tab.filterFrameId}"');
+          _localFrameId = tab.filterFrameId;
+          _localDirection = tab.filterDirection;
+          _localChannel = tab.filterChannel;
+          _frameIdController.text = _localFrameId;
+
+          _lastTabIndex = widget.tabIndex;
+          _lastAppliedFrameId = tab.filterFrameId;
+          _lastAppliedDirection = tab.filterDirection;
+          _lastAppliedChannel = tab.filterChannel;
+          _initialized = true;
+        }
+
+        if (tab.autoScroll && tab.messages.isNotEmpty) {
           _scrollToBottom();
         }
 
@@ -79,7 +134,6 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-
                     _buildActionButton(
                       icon: Icons.delete_outline,
                       label: 'Clear',
@@ -96,56 +150,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                 ),
                 child: Column(
                   children: [
-                    // Search bar
-                    if (_showSearch)
-                      Container(
-                        height: 34,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        decoration: const BoxDecoration(
-                          color: AppTheme.panelHeader,
-                          border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.search, size: 14, color: AppTheme.textMuted),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: TextField(
-                                controller: _searchController,
-                                style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textPrimary),
-                                decoration: InputDecoration(
-                                  hintText: 'Filter by CAN ID, direction, data...',
-                                  hintStyle: GoogleFonts.inter(fontSize: 11, color: AppTheme.textMuted),
-                                  border: InputBorder.none,
-                                  enabledBorder: InputBorder.none,
-                                  focusedBorder: InputBorder.none,
-                                  contentPadding: EdgeInsets.zero,
-                                  isDense: true,
-                                ),
-                                onChanged: (value) {
-                                  controller.setFilterQuery(widget.tabIndex, value);
-                                },
-                              ),
-                            ),
-                            if (_searchController.text.isNotEmpty)
-                              InkWell(
-                                onTap: () {
-                                  _searchController.clear();
-                                  controller.setFilterQuery(widget.tabIndex, '');
-                                },
-                                child: const Icon(Icons.close, size: 14, color: AppTheme.textMuted),
-                              ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '${tab.filteredMessages.length} / ${tab.messages.length}',
-                              style: GoogleFonts.jetBrainsMono(
-                                fontSize: 10,
-                                color: AppTheme.textMuted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                    _buildFilterBar(controller, tab),
                     Expanded(
                       child: _buildMessageArea(tab, controller.canConfig.canType == CanType.canFd),
                     ),
@@ -156,6 +161,191 @@ class _TabViewWidgetState extends State<TabViewWidget> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildFilterBar(PortController controller, SerialTab tab) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: const BoxDecoration(
+        color: AppTheme.panelHeader,
+        border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
+      ),
+      child: Row(
+        children: [
+          // Frame ID Filter
+          Expanded(
+            child: SizedBox(
+              height: 28,
+              child: TextField(
+                controller: _frameIdController,
+                style: GoogleFonts.jetBrainsMono(fontSize: 11, color: AppTheme.textPrimary),
+                decoration: InputDecoration(
+                  hintText: 'Filter Frame ID (e.g. 0x002)',
+                  hintStyle: GoogleFonts.inter(fontSize: 11, color: AppTheme.textMuted),
+                  prefixIcon: const Icon(Icons.search, size: 14, color: AppTheme.textMuted),
+                  contentPadding: const EdgeInsets.only(top: 0, bottom: 0, right: 8),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(4),
+                    borderSide: const BorderSide(color: AppTheme.borderColor),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(4),
+                    borderSide: const BorderSide(color: AppTheme.borderColor),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(4),
+                    borderSide: const BorderSide(color: AppTheme.primaryColor),
+                  ),
+                  fillColor: AppTheme.bgInput,
+                  filled: true,
+                ),
+                onChanged: (val) {
+                  _localFrameId = val;
+                },
+                onSubmitted: (_) => _applyFilters(controller),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          // Direction Filter Dropdown
+          SizedBox(
+            height: 28,
+            width: 140,
+            child: DropdownButtonFormField<String>(
+              key: ValueKey('dir_$_localDirection'),
+              initialValue: _localDirection,
+              style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textPrimary),
+              dropdownColor: AppTheme.bgElevated,
+              decoration: InputDecoration(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(4),
+                  borderSide: const BorderSide(color: AppTheme.borderColor),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(4),
+                  borderSide: const BorderSide(color: AppTheme.borderColor),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(4),
+                  borderSide: const BorderSide(color: AppTheme.primaryColor),
+                ),
+                fillColor: AppTheme.bgInput,
+                filled: true,
+              ),
+              items: const [
+                DropdownMenuItem(value: 'All', child: Text('All Directions')),
+                DropdownMenuItem(value: 'TX', child: Text('TX Only')),
+                DropdownMenuItem(value: 'RX', child: Text('RX Only')),
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() {
+                    _localDirection = val;
+                  });
+                }
+              },
+            ),
+          ),
+          const SizedBox(width: 10),
+          // Channel Filter Dropdown
+          SizedBox(
+            height: 28,
+            width: 140,
+            child: DropdownButtonFormField<String>(
+              key: ValueKey('chan_$_localChannel'),
+              initialValue: _localChannel,
+              style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textPrimary),
+              dropdownColor: AppTheme.bgElevated,
+              decoration: InputDecoration(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(4),
+                  borderSide: const BorderSide(color: AppTheme.borderColor),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(4),
+                  borderSide: const BorderSide(color: AppTheme.borderColor),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(4),
+                  borderSide: const BorderSide(color: AppTheme.primaryColor),
+                ),
+                fillColor: AppTheme.bgInput,
+                filled: true,
+              ),
+              items: const [
+                DropdownMenuItem(value: 'All', child: Text('All Channels')),
+                DropdownMenuItem(value: 'Channel 1', child: Text('Channel 1')),
+                DropdownMenuItem(value: 'Channel 2', child: Text('Channel 2')),
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() {
+                    _localChannel = val;
+                  });
+                }
+              },
+            ),
+          ),
+          const SizedBox(width: 10),
+          // Apply Button
+          SizedBox(
+            height: 28,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                backgroundColor: AppTheme.primaryColor,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                elevation: 0,
+              ),
+              icon: const Icon(Icons.check, size: 14, color: Colors.white),
+              label: Text(
+                'Apply',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+              onPressed: () => _applyFilters(controller),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Clear Button
+          SizedBox(
+            height: 28,
+            child: Builder(
+              builder: (context) {
+                final bool isAnyFilterApplied = tab.filterFrameId.isNotEmpty || tab.filterDirection != 'All' || tab.filterChannel != 'All';
+                return OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    foregroundColor: isAnyFilterApplied ? AppTheme.textSecondary : AppTheme.textMuted.withValues(alpha: 0.5),
+                    side: BorderSide(color: isAnyFilterApplied ? AppTheme.borderColor : AppTheme.borderColor.withValues(alpha: 0.5)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  icon: Icon(Icons.filter_alt_off, size: 14, color: isAnyFilterApplied ? AppTheme.textSecondary : AppTheme.textMuted.withValues(alpha: 0.5)),
+                  label: Text(
+                    'Clear',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  onPressed: isAnyFilterApplied ? () => _clearFilters(controller) : null,
+                );
+              }
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -250,6 +440,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
               ? constraints.maxWidth
               : minTotalWidth;
 
+          final hasActiveFilter = tab.filterFrameId.isNotEmpty || tab.filterDirection != 'All' || tab.filterChannel != 'All';
           if (displayMessages.isEmpty) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -261,7 +452,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          tab.filterQuery.isNotEmpty
+                          hasActiveFilter
                               ? Icons.filter_list_off
                               : Icons.monitor_outlined,
                           size: 32,
@@ -269,7 +460,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          tab.filterQuery.isNotEmpty
+                          hasActiveFilter
                               ? 'No matching messages'
                               : 'No communication data yet',
                           style: GoogleFonts.inter(
@@ -476,7 +667,7 @@ class _MessageRowWithContextMenu extends StatelessWidget {
         case 'filter_id':
           if (message.canId != null) {
             final controller = Provider.of<PortController>(context, listen: false);
-            controller.setFilterQuery(
+            controller.setFilterFrameId(
               controller.activeTabIndex,
               message.canId!.replaceAll('0x', ''),
             );

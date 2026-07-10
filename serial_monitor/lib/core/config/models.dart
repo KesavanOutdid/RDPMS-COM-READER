@@ -275,6 +275,9 @@ class SerialTab {
 
   /// Search/filter query for message table
   String filterQuery;
+  String filterDirection;
+  String filterChannel;
+  String filterFrameId;
 
   SerialTab({
     String? id,
@@ -289,6 +292,9 @@ class SerialTab {
     this.pendingInput = '',
     this.selectedSendSequenceIndex = 0,
     this.filterQuery = '',
+    this.filterDirection = 'All',
+    this.filterChannel = 'All',
+    this.filterFrameId = '',
   }) : id = id ?? DateTime.now().microsecondsSinceEpoch.toString() + name,
        messages = messages ?? [],
        sendSequences = sendSequences ?? [SendSequence(name: tabCanId != null && tabCanId.isNotEmpty ? 'Msg ($tabCanId)' : 'message 1', canIdHex: tabCanId ?? '')];
@@ -329,16 +335,49 @@ class SerialTab {
     messages.clear();
   }
 
-  /// Get filtered messages based on filterQuery
+  /// Get filtered messages based on filterQuery, filterDirection, filterChannel, and filterFrameId
   List<SerialMessage> get filteredMessages {
-    if (filterQuery.isEmpty) return messages;
-    final q = filterQuery.toLowerCase();
-    return messages.where((m) {
-      return (m.canId?.toLowerCase().contains(q) ?? false) ||
-          m.directionLabel.toLowerCase().contains(q) ||
-          m.getFormatted(displayFormat).toLowerCase().contains(q) ||
-          (m.type?.toLowerCase().contains(q) ?? false);
-    }).toList();
+    print('MODELS filteredMessages: filterFrameId="$filterFrameId" filterDirection="$filterDirection" filterChannel="$filterChannel" totalMessages=${messages.length}');
+    Iterable<SerialMessage> result = messages;
+
+    // Filter by general filterQuery if present
+    if (filterQuery.isNotEmpty) {
+      final q = filterQuery.toLowerCase();
+      result = result.where((m) {
+        return (m.canId?.toLowerCase().contains(q) ?? false) ||
+            m.directionLabel.toLowerCase().contains(q) ||
+            m.getFormatted(displayFormat).toLowerCase().contains(q) ||
+            (m.type?.toLowerCase().contains(q) ?? false);
+      });
+    }
+
+    // Filter by Direction
+    if (filterDirection != 'All') {
+      final isSent = filterDirection == 'TX';
+      result = result.where((m) => (m.direction == MessageDirection.sent) == isSent);
+    }
+
+    // Filter by Channel
+    if (filterChannel != 'All') {
+      final targetChannel = filterChannel == 'Channel 1' ? 1 : 2;
+      result = result.where((m) => m.channel == targetChannel);
+    }
+
+    // Filter by Frame ID
+    if (filterFrameId.isNotEmpty) {
+      final q = filterFrameId.toLowerCase();
+      result = result.where((m) {
+        final canIdStr = m.canId?.toLowerCase() ?? '';
+        final cleanId = canIdStr.replaceAll('0x', '');
+        final cleanQuery = q.replaceAll('0x', '');
+        return canIdStr.endsWith(q) ||
+            cleanId.endsWith(cleanQuery) ||
+            canIdStr.contains(q) ||
+            cleanId.contains(cleanQuery);
+      });
+    }
+
+    return result.toList();
   }
 
   /// Export messages as CSV string

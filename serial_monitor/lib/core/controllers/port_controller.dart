@@ -851,6 +851,33 @@ class PortController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setFilterDirection(int tabIndex, String direction) {
+    if (tabIndex < 0 || tabIndex >= _tabs.length) return;
+    _tabs[tabIndex].filterDirection = direction;
+    notifyListeners();
+  }
+
+  void setFilterChannel(int tabIndex, String channel) {
+    if (tabIndex < 0 || tabIndex >= _tabs.length) return;
+    _tabs[tabIndex].filterChannel = channel;
+    notifyListeners();
+  }
+
+  void setFilterFrameId(int tabIndex, String frameId) {
+    if (tabIndex < 0 || tabIndex >= _tabs.length) return;
+    _tabs[tabIndex].filterFrameId = frameId;
+    notifyListeners();
+  }
+
+  void clearAllFilters(int tabIndex) {
+    if (tabIndex < 0 || tabIndex >= _tabs.length) return;
+    _tabs[tabIndex].filterDirection = 'All';
+    _tabs[tabIndex].filterChannel = 'All';
+    _tabs[tabIndex].filterFrameId = '';
+    _tabs[tabIndex].filterQuery = '';
+    notifyListeners();
+  }
+
   // ─── EXPORT (#7) ──────────────────────────────────
 
   Future<String?> exportMessages(int tabIndex) async {

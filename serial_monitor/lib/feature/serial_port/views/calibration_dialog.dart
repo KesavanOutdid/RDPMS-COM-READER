@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -50,6 +51,8 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
   final TextEditingController _canIdController = TextEditingController(text: '00 00 00 01');
   final TextEditingController _payloadController = TextEditingController();
   final TextEditingController _decInputController = TextEditingController();
+  final TextEditingController _numberToSendController = TextEditingController(text: '1');
+  final TextEditingController _sendCycleController = TextEditingController(text: '0');
 
   bool _isExtended = false;
   CalibrationType _selectedBoardType = CalibrationType.acVoltage;
@@ -58,6 +61,8 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
   final List<_LogEntry> _log = [];
   final ScrollController _logScrollController = ScrollController();
   Function(Map<String, dynamic>)? _oldCanFrameRx;
+  CalibrationCommand? _lastSentCmd;
+  int _rxResponseCount = 0;
 
   // Command lists map
   static final Map<CalibrationType, List<CalibrationCommand>> _boardCommands = {
@@ -169,6 +174,8 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
     _canIdController.dispose();
     _payloadController.dispose();
     _decInputController.dispose();
+    _numberToSendController.dispose();
+    _sendCycleController.dispose();
     _logScrollController.dispose();
     super.dispose();
   }
@@ -195,6 +202,13 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
       return val;
     }
 
+    double readFloat(List<int> bytes, int start, bool bigEndian) {
+      if (start + 4 > bytes.length) return 0.0;
+      final list = Uint8List.fromList(bytes.sublist(start, start + 4));
+      final byteData = ByteData.view(list.buffer);
+      return byteData.getFloat32(0, bigEndian ? Endian.big : Endian.little);
+    }
+
     if (frame['type'] == 'heartbeat' || frame['type'] == 'HEARTBEAT_RESPONSE') {
       return;
     }
@@ -202,136 +216,261 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
     String decodedMsg = '';
     _LogLevel level = _LogLevel.rx;
 
-    bool isSuccess = false;
-    bool isError = false;
+    final isSlopeResponse = rawBytes.length == 8 && 
+        (_lastSentCmd?.name == 'CMD_GET_SLOPE' || 
+         _lastSentCmd?.hexValue == 0xF5 || 
+         _lastSentCmd?.hexValue == 0xE5 || 
+         _lastSentCmd?.hexValue == 0xC5 || 
+         _lastSentCmd?.hexValue == 0xD5);
 
-    if (rawBytes.length >= 2 && rawBytes[0] == 0x4F && rawBytes[1] == 0x4B) {
-      isSuccess = true;
-    } else if (rawBytes.length >= 3 && rawBytes[1] == 0x4F && rawBytes[2] == 0x4B) {
-      isSuccess = true;
-    }
+    final isConstantResponse = rawBytes.length == 8 && 
+        (_lastSentCmd?.name == 'CMD_GET_CONSTANT' || 
+         _lastSentCmd?.hexValue == 0xF6 || 
+         _lastSentCmd?.hexValue == 0xE6 || 
+         _lastSentCmd?.hexValue == 0xC6 || 
+         _lastSentCmd?.hexValue == 0xD6);
 
-    if (rawBytes.length >= 3 && rawBytes[0] == 0x45 && rawBytes[1] == 0x52 && rawBytes[2] == 0x52) {
-      isError = true;
-    } else if (rawBytes.length >= 4 && rawBytes[1] == 0x45 && rawBytes[2] == 0x52 && rawBytes[3] == 0x52) {
-      isError = true;
-    }
+    if (isSlopeResponse) {
+      final m1Int = readInt(rawBytes, 0, 4, true);
+      final m2Int = readInt(rawBytes, 4, 4, true);
+      final m1Float = readFloat(rawBytes, 0, true);
+      final m2Float = readFloat(rawBytes, 4, true);
 
-    final isMeasurementCmd = rawBytes.isNotEmpty &&
-        (rawBytes[0] == 0xF8 ||
-            rawBytes[0] == 0xE8 ||
-            rawBytes[0] == 0xB8 ||
-            rawBytes[0] == 0xA8 ||
-            rawBytes[0] == 0xC8 ||
-            rawBytes[0] == 0xD8);
-
-    final isSingleDecimalCmd = rawBytes.isNotEmpty &&
-        (rawBytes[0] == 0xF4 ||
-            rawBytes[0] == 0xE4 ||
-            rawBytes[0] == 0xB4 ||
-            rawBytes[0] == 0xA4 ||
-            rawBytes[0] == 0xC4 ||
-            rawBytes[0] == 0xD4 ||
-            rawBytes[0] == 0xFA ||
-            rawBytes[0] == 0xEA ||
-            rawBytes[0] == 0xCA ||
-            rawBytes[0] == 0xDA ||
-            rawBytes[0] == 0xF5 ||
-            rawBytes[0] == 0xE5 ||
-            rawBytes[0] == 0xC5 ||
-            rawBytes[0] == 0xD5 ||
-            rawBytes[0] == 0xF6 ||
-            rawBytes[0] == 0xE6 ||
-            rawBytes[0] == 0xC6 ||
-            rawBytes[0] == 0xD6 ||
-            rawBytes[0] == 0xB3 ||
-            rawBytes[0] == 0xA3 ||
-            rawBytes[0] == 0xB5 ||
-            rawBytes[0] == 0xA5);
-
-    final isVersionCmd = rawBytes.isNotEmpty &&
-        (rawBytes[0] == 0xFB ||
-            rawBytes[0] == 0xEB ||
-            rawBytes[0] == 0xB6 ||
-            rawBytes[0] == 0xA6 ||
-            rawBytes[0] == 0xCB ||
-            rawBytes[0] == 0xDB);
-
-    final isDigitalCmd = rawBytes.isNotEmpty && rawBytes[0] == 0x1A;
-    final isAccelCmd = rawBytes.isNotEmpty && rawBytes[0] == 0x1B;
-
-    if (isSuccess) {
-      decodedMsg = 'Success Handshake (OK)';
-      level = _LogLevel.success;
-    } else if (isError) {
-      decodedMsg = 'Error Handshake (ERR)';
-      level = _LogLevel.error;
-    } else if (isMeasurementCmd && rawBytes.length >= 5) {
-      final ch1Val = readInt(rawBytes, 1, 2, true); // Always Big-Endian
-      final ch2Val = readInt(rawBytes, 3, 2, true); // Always Big-Endian
-
-      final ch1 = ch1Val / 100.0;
-      final ch2 = ch2Val / 100.0;
-
-      decodedMsg = 'Measurements — Ch1: ${ch1.toStringAsFixed(2)}V, Ch2: ${ch2.toStringAsFixed(2)}V';
+      final cmdLabel = _lastSentCmd?.name ?? 'CMD_GET_SLOPE';
+      decodedMsg = '$cmdLabel — M1: ${m1Float.toStringAsFixed(4)} (Raw: $m1Int), M2: ${m2Float.toStringAsFixed(4)} (Raw: $m2Int)';
       level = _LogLevel.info;
-    } else if (isSingleDecimalCmd && rawBytes.length >= 3) {
-      final val = readInt(rawBytes, 1, rawBytes.length - 1, true); // Always Big-Endian
-      decodedMsg = 'Decimal: $val';
+      _lastSentCmd = null;
+    } else if (isConstantResponse) {
+      final c1Int = readInt(rawBytes, 0, 4, true);
+      final c2Int = readInt(rawBytes, 4, 4, true);
+      final c1Float = readFloat(rawBytes, 0, true);
+      final c2Float = readFloat(rawBytes, 4, true);
+
+      final cmdLabel = _lastSentCmd?.name ?? 'CMD_GET_CONSTANT';
+      decodedMsg = '$cmdLabel — C1: ${c1Float.toStringAsFixed(4)} (Raw: $c1Int), C2: ${c2Float.toStringAsFixed(4)} (Raw: $c2Int)';
       level = _LogLevel.info;
-    } else if (isDigitalCmd && rawBytes.length >= 3) {
-      final List<int> chs = [];
-      for (int i = 1; i + 1 < rawBytes.length; i += 2) {
-        chs.add(readInt(rawBytes, i, 2, true)); // Always Big-Endian
-      }
-      decodedMsg = 'Channels — ${chs.asMap().entries.map((e) => 'Ch${e.key + 1}: ${e.value}').join(', ')}';
-      level = _LogLevel.info;
-    } else if (isAccelCmd && rawBytes.length >= 13) {
-      final xMin = readInt(rawBytes, 1, 2, true); // Always Big-Endian
-      final xMax = readInt(rawBytes, 3, 2, true); // Always Big-Endian
-      final yMin = readInt(rawBytes, 5, 2, true); // Always Big-Endian
-      final yMax = readInt(rawBytes, 7, 2, true); // Always Big-Endian
-      final zMin = readInt(rawBytes, 9, 2, true); // Always Big-Endian
-      final zMax = readInt(rawBytes, 11, 2, true); // Always Big-Endian
-      decodedMsg = 'Accelerometer — X Min: $xMin, X Max: $xMax, Y Min: $yMin, Y Max: $yMax, Z Min: $zMin, Z Max: $zMax';
-      level = _LogLevel.info;
-    } else if (isVersionCmd && rawBytes.length >= 2) {
-      final asciiBytes = rawBytes.sublist(1);
-      final asciiStr = String.fromCharCodes(asciiBytes.where((b) => b >= 32 && b <= 126));
-      decodedMsg = 'Version: $asciiStr';
-      level = _LogLevel.info;
+      _lastSentCmd = null;
     } else {
-      // Check for version response format:
-      // Byte0: Board Type, Byte1: Hardware Rev, Byte2-3: Product ID, Byte4: Node ID, Byte5-10: Version
-      // Or shifted by 1 if it starts with echoed command byte
-      int offset = 0;
-      if (rawBytes.isNotEmpty &&
+      bool isSuccess = false;
+      bool isError = false;
+
+      if (rawBytes.length >= 2 && rawBytes[0] == 0x4F && rawBytes[1] == 0x4B) {
+        isSuccess = true;
+      } else if (rawBytes.length >= 3 && rawBytes[1] == 0x4F && rawBytes[2] == 0x4B) {
+        isSuccess = true;
+      }
+
+      if (rawBytes.length >= 3 && rawBytes[0] == 0x45 && rawBytes[1] == 0x52 && rawBytes[2] == 0x52) {
+        isError = true;
+      } else if (rawBytes.length >= 4 && rawBytes[1] == 0x45 && rawBytes[2] == 0x52 && rawBytes[3] == 0x52) {
+        isError = true;
+      }
+
+      final isMeasurementCmd = rawBytes.isNotEmpty &&
+          (rawBytes[0] == 0xF8 ||
+              rawBytes[0] == 0xE8 ||
+              rawBytes[0] == 0xB8 ||
+              rawBytes[0] == 0xA8 ||
+              rawBytes[0] == 0xC8 ||
+              rawBytes[0] == 0xD8);
+
+      final isOffsetOrRawDataCmd = rawBytes.isNotEmpty &&
+          (rawBytes[0] == 0xF4 ||
+              rawBytes[0] == 0xE4 ||
+              rawBytes[0] == 0xB4 ||
+              rawBytes[0] == 0xA4 ||
+              rawBytes[0] == 0xC4 ||
+              rawBytes[0] == 0xD4 ||
+              rawBytes[0] == 0xFA ||
+              rawBytes[0] == 0xEA ||
+              rawBytes[0] == 0xCA ||
+              rawBytes[0] == 0xDA);
+
+      final isSingleDecimalCmd = rawBytes.isNotEmpty &&
+          (rawBytes[0] == 0xF5 ||
+              rawBytes[0] == 0xE5 ||
+              rawBytes[0] == 0xC5 ||
+              rawBytes[0] == 0xD5 ||
+              rawBytes[0] == 0xF6 ||
+              rawBytes[0] == 0xE6 ||
+              rawBytes[0] == 0xC6 ||
+              rawBytes[0] == 0xD6 ||
+              rawBytes[0] == 0xB3 ||
+              rawBytes[0] == 0xA3 ||
+              rawBytes[0] == 0xB5 ||
+              rawBytes[0] == 0xA5);
+
+      final isVersionCmd = rawBytes.isNotEmpty &&
           (rawBytes[0] == 0xFB ||
               rawBytes[0] == 0xEB ||
               rawBytes[0] == 0xB6 ||
               rawBytes[0] == 0xA6 ||
               rawBytes[0] == 0xCB ||
-              rawBytes[0] == 0xDB)) {
-        offset = 1;
-      }
+              rawBytes[0] == 0xDB);
 
-      if (rawBytes.length >= 6 + offset) {
-        final boardType = rawBytes[0 + offset];
-        final hwRev = rawBytes[1 + offset];
-        final prodId = (rawBytes[2 + offset] << 8) | rawBytes[3 + offset];
-        final nodeId = rawBytes[4 + offset];
-        final versionBytes = rawBytes.sublist(5 + offset);
-        final versionStr = String.fromCharCodes(versionBytes.where((b) => b >= 32 && b <= 126));
+      final isDigitalCmd = rawBytes.isNotEmpty && rawBytes[0] == 0x1A;
+      final isAccelCmd = rawBytes.isNotEmpty && rawBytes[0] == 0x1B;
 
-        decodedMsg = 'Board Info: Type 0x${boardType.toRadixString(16).toUpperCase()}, Rev $hwRev, Prod ID $prodId, Node $nodeId, Version: "$versionStr"';
+      if (isSuccess) {
+        String cmdName = '';
+        if (rawBytes.length >= 3 && rawBytes[1] == 0x4F && rawBytes[2] == 0x4B) {
+          final cmdByte = rawBytes[0];
+          for (final list in _boardCommands.values) {
+            final found = list.firstWhere(
+              (c) => c.hexValue == cmdByte,
+              orElse: () => const CalibrationCommand(name: '', hexValue: 0, description: ''),
+            );
+            if (found.name.isNotEmpty) {
+              cmdName = found.name;
+              break;
+            }
+          }
+        }
+        decodedMsg = cmdName.isNotEmpty ? 'Success Handshake (OK) — $cmdName' : 'Success Handshake (OK)';
+        level = _LogLevel.success;
+      } else if (isError) {
+        String cmdName = '';
+        if (rawBytes.length >= 4 && rawBytes[1] == 0x45 && rawBytes[2] == 0x52 && rawBytes[3] == 0x52) {
+          final cmdByte = rawBytes[0];
+          for (final list in _boardCommands.values) {
+            final found = list.firstWhere(
+              (c) => c.hexValue == cmdByte,
+              orElse: () => const CalibrationCommand(name: '', hexValue: 0, description: ''),
+            );
+            if (found.name.isNotEmpty) {
+              cmdName = found.name;
+              break;
+            }
+          }
+        }
+        decodedMsg = cmdName.isNotEmpty ? 'Error Handshake (ERR) — $cmdName' : 'Error Handshake (ERR)';
+        level = _LogLevel.error;
+      } else if (isMeasurementCmd && rawBytes.length >= 5) {
+        final ch1Val = readInt(rawBytes, 1, 2, true); // Always Big-Endian
+        final ch2Val = readInt(rawBytes, 3, 2, true); // Always Big-Endian
+
+        String unit = 'V';
+        double divisor = 100.0;
+        int fractionDigits = 2;
+        if (rawBytes[0] == 0xB8 || rawBytes[0] == 0xC8 || rawBytes[0] == 0xD8) {
+          unit = 'A';
+          divisor = 1000.0;
+          fractionDigits = 3;
+        }
+
+        final ch1 = ch1Val / divisor;
+        final ch2 = ch2Val / divisor;
+
+        decodedMsg = 'Measurements — Ch1: ${ch1.toStringAsFixed(fractionDigits)}$unit, Ch2: ${ch2.toStringAsFixed(fractionDigits)}$unit';
         level = _LogLevel.info;
+      } else if (isOffsetOrRawDataCmd && rawBytes.length >= 4) {
+        final List<String> channelParts = [];
+        int i = 1;
+        while (i + 2 < rawBytes.length) {
+          final chIndicator = rawBytes[i];
+          if (chIndicator == 0) {
+            break;
+          }
+          final val = readInt(rawBytes, i + 1, 2, true); // Big-Endian 2-byte value
+          channelParts.add('Ch$chIndicator: $val');
+          i += 3;
+        }
+        
+        String cmdLabel = '';
+        final cmdByte = rawBytes[0];
+        for (final list in _boardCommands.values) {
+          final found = list.firstWhere(
+            (c) => c.hexValue == cmdByte,
+            orElse: () => const CalibrationCommand(name: '', hexValue: 0, description: ''),
+          );
+          if (found.name.isNotEmpty) {
+            cmdLabel = found.name;
+            break;
+          }
+        }
+
+        if (channelParts.isNotEmpty) {
+          decodedMsg = cmdLabel.isNotEmpty 
+              ? '$cmdLabel — ${channelParts.join(", ")}'
+              : 'Channels — ${channelParts.join(", ")}';
+        } else {
+          final val = readInt(rawBytes, 1, rawBytes.length - 1, true);
+          decodedMsg = cmdLabel.isNotEmpty ? '$cmdLabel: $val' : 'Decimal: $val';
+        }
+        level = _LogLevel.info;
+      } else if (isSingleDecimalCmd && rawBytes.length >= 3) {
+        final val = readInt(rawBytes, 1, rawBytes.length - 1, true); // Always Big-Endian
+        String cmdLabel = '';
+        final cmdByte = rawBytes[0];
+        for (final list in _boardCommands.values) {
+          final found = list.firstWhere(
+            (c) => c.hexValue == cmdByte,
+            orElse: () => const CalibrationCommand(name: '', hexValue: 0, description: ''),
+          );
+          if (found.name.isNotEmpty) {
+            cmdLabel = found.name;
+            break;
+          }
+        }
+        decodedMsg = cmdLabel.isNotEmpty ? '$cmdLabel: $val' : 'Decimal: $val';
+        level = _LogLevel.info;
+      } else if (isDigitalCmd && rawBytes.length >= 3) {
+        final List<int> chs = [];
+        for (int i = 1; i + 1 < rawBytes.length; i += 2) {
+          chs.add(readInt(rawBytes, i, 2, true)); // Always Big-Endian
+        }
+        decodedMsg = 'Channels — ${chs.asMap().entries.map((e) => 'Ch${e.key + 1}: ${e.value}').join(', ')}';
+        level = _LogLevel.info;
+      } else if (isAccelCmd && rawBytes.length >= 13) {
+        final xMin = readInt(rawBytes, 1, 2, true); // Always Big-Endian
+        final xMax = readInt(rawBytes, 3, 2, true); // Always Big-Endian
+        final yMin = readInt(rawBytes, 5, 2, true); // Always Big-Endian
+        final yMax = readInt(rawBytes, 7, 2, true); // Always Big-Endian
+        final zMin = readInt(rawBytes, 9, 2, true); // Always Big-Endian
+        final zMax = readInt(rawBytes, 11, 2, true); // Always Big-Endian
+        decodedMsg = 'Accelerometer — X Min: $xMin, X Max: $xMax, Y Min: $yMin, Y Max: $yMax, Z Min: $zMin, Z Max: $zMax';
+        level = _LogLevel.info;
+      } else if (isVersionCmd && rawBytes.length >= 2) {
+        int offset = 1;
+        if (rawBytes.length >= 6 + offset) {
+          final boardType = rawBytes[0 + offset];
+          final hwRev = rawBytes[1 + offset];
+          final prodId = (rawBytes[2 + offset] << 8) | rawBytes[3 + offset];
+          final nodeId = rawBytes[4 + offset];
+          final versionBytes = rawBytes.sublist(5 + offset);
+          final versionStr = String.fromCharCodes(versionBytes.where((b) => b >= 32 && b <= 126));
+
+          decodedMsg = 'Board Info: Type 0x${boardType.toRadixString(16).toUpperCase()}, Rev $hwRev, Prod ID $prodId, Node $nodeId, Version: "$versionStr"';
+        } else {
+          final asciiBytes = rawBytes.sublist(1);
+          final asciiStr = String.fromCharCodes(asciiBytes.where((b) => b >= 32 && b <= 126));
+          decodedMsg = 'Version: $asciiStr';
+        }
+        level = _LogLevel.info;
+      } else {
+        // Check for version response format where command byte is NOT echoed (offset = 0)
+        if (rawBytes.length >= 6) {
+          final boardType = rawBytes[0];
+          final hwRev = rawBytes[1];
+          final prodId = (rawBytes[2] << 8) | rawBytes[3];
+          final nodeId = rawBytes[4];
+          final versionBytes = rawBytes.sublist(5);
+          final versionStr = String.fromCharCodes(versionBytes.where((b) => b >= 32 && b <= 126));
+
+          decodedMsg = 'Board Info: Type 0x${boardType.toRadixString(16).toUpperCase()}, Rev $hwRev, Prod ID $prodId, Node $nodeId, Version: "$versionStr"';
+          level = _LogLevel.info;
+        }
       }
     }
 
     final bitCount = rawBytes.length * 8;
-    final message = decodedMsg.isNotEmpty
-        ? '← RX [$canId] $dataHex ($decodedMsg, $bitCount bits)'
-        : '← RX [$canId] $dataHex ($bitCount bits)';
+    String message;
+    if (decodedMsg.isNotEmpty) {
+      _rxResponseCount++;
+      message = '← [$_rxResponseCount] RX [$canId] $dataHex ($decodedMsg, $bitCount bits)';
+    } else {
+      message = '← RX [$canId] $dataHex ($bitCount bits)';
+    }
 
     _addLog(message, level);
   }
@@ -376,8 +515,9 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
       return;
     }
 
-    // Determine the minimum number of bytes needed to represent the value (at least 1 byte)
-    int byteLength = 1;
+    // Determine the number of bytes needed to represent the value
+    // Minimum of 2 bytes (16-bit) to represent endianness correctly
+    int byteLength = 2;
     if (value >= 0x100000000000000) {
       byteLength = 8;
     } else if (value >= 0x1000000000000) {
@@ -390,8 +530,6 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
       byteLength = 4;
     } else if (value >= 0x10000) {
       byteLength = 3;
-    } else if (value >= 0x100) {
-      byteLength = 2;
     }
 
     final bytes = List<int>.filled(8, 0);
@@ -416,7 +554,7 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
     _addLog('✓ Converted decimal $value to 64-bit ${_isBigEndian ? "MSB" : "LSB"} Hex: $hexStr', _LogLevel.info);
   }
 
-  void _sendCommand(CalibrationCommand cmd) {
+  Future<void> _sendCommand(CalibrationCommand cmd) async {
     final rawCanId = _canIdController.text.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '').toUpperCase();
     if (rawCanId.isEmpty) {
       _addLog('❌ CAN ID cannot be empty', _LogLevel.error);
@@ -454,22 +592,40 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
       }
     }
 
-    final success = widget.serialService.sendCanFrame(
-      canId: canIdStr,
-      data: frameData,
-      channel: widget.channel,
-      isExtended: _isExtended,
-      isFD: widget.isFD,
-    );
+    final cycles = int.tryParse(_numberToSendController.text) ?? 1;
+    final delayMs = int.tryParse(_sendCycleController.text) ?? 0;
 
-    if (success) {
-      final hexDataStr = frameData
-          .map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase())
-          .join(' ');
-      final bitCount = frameData.length * 8;
-      _addLog('→ TX [$canIdStr] $hexDataStr (Cmd: ${cmd.name}, $bitCount bits)', _LogLevel.tx);
-    } else {
-      _addLog('❌ Failed to send command: ${cmd.name}', _LogLevel.error);
+    setState(() {
+      _rxResponseCount = 0;
+    });
+
+    for (int i = 0; i < cycles; i++) {
+      if (i > 0 && delayMs > 0) {
+        await Future.delayed(Duration(milliseconds: delayMs));
+      }
+
+      final success = widget.serialService.sendCanFrame(
+        canId: canIdStr,
+        data: frameData,
+        channel: widget.channel,
+        isExtended: _isExtended,
+        isFD: widget.isFD,
+      );
+
+      if (success) {
+        _lastSentCmd = cmd;
+        final hexDataStr = frameData
+            .map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase())
+            .join(' ');
+        final bitCount = frameData.length * 8;
+
+        final txPrefix = cycles > 1 ? '→ [${i + 1}] TX' : '→ TX';
+        _addLog('$txPrefix [$canIdStr] $hexDataStr (Cmd: ${cmd.name}, $bitCount bits)', _LogLevel.tx);
+      } else {
+        final cycleStr = cycles > 1 ? ' (Cycle ${i + 1}/$cycles)' : '';
+        _addLog('❌ Failed to send command: ${cmd.name}$cycleStr', _LogLevel.error);
+        break;
+      }
     }
   }
 
@@ -589,122 +745,164 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppTheme.borderColor),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Target CAN ID
-          Expanded(
-            flex: 4,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Target CAN ID',
-                  style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
-                ),
-                const SizedBox(height: 6),
-                SizedBox(
-                  height: 38,
-                  child: TextField(
-                    controller: _canIdController,
-                    style: GoogleFonts.jetBrainsMono(
-                      fontSize: 14,
-                      letterSpacing: 1.0,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.textPrimary,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: '00 00 00 01',
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                    ),
-                    onChanged: (value) {
-                      final compact = value.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '').toUpperCase();
-                      final buffer = StringBuffer();
-                      for (var i = 0; i < compact.length; i++) {
-                        if (i > 0 && i % 2 == 0) buffer.write(' ');
-                        buffer.write(compact[i]);
-                      }
-                      final normalized = buffer.toString();
-                      if (normalized != value) {
-                        _canIdController.value = TextEditingValue(
-                          text: normalized,
-                          selection: TextSelection.collapsed(offset: normalized.length),
-                        );
-                      }
-                      
-                      // Auto toggle extended based on value
-                      final parsed = int.tryParse(compact, radix: 16) ?? 0;
-                      setState(() {
-                        _isExtended = parsed > 0x7FF;
-                      });
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-          /*
-          // Extended Frame
-          Column(
+          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Extended',
-                style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
+              // Target CAN ID
+              Expanded(
+                flex: 4,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Target CAN ID',
+                      style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 6),
+                    SizedBox(
+                      height: 38,
+                      child: TextField(
+                        controller: _canIdController,
+                        style: GoogleFonts.jetBrainsMono(
+                          fontSize: 14,
+                          letterSpacing: 1.0,
+                          fontWeight: FontWeight.w500,
+                          color: AppTheme.textPrimary,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: '00 00 00 01',
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                        ),
+                        onChanged: (value) {
+                          final compact = value.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '').toUpperCase();
+                          final buffer = StringBuffer();
+                          for (var i = 0; i < compact.length; i++) {
+                            if (i > 0 && i % 2 == 0) buffer.write(' ');
+                            buffer.write(compact[i]);
+                          }
+                          final normalized = buffer.toString();
+                          if (normalized != value) {
+                            _canIdController.value = TextEditingValue(
+                              text: normalized,
+                              selection: TextSelection.collapsed(offset: normalized.length),
+                            );
+                          }
+                          
+                          // Auto toggle extended based on value
+                          final parsed = int.tryParse(compact, radix: 16) ?? 0;
+                          setState(() {
+                            _isExtended = parsed > 0x7FF;
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 24,
-                child: Switch(
-                  value: _isExtended,
-                  onChanged: (val) {
-                    setState(() => _isExtended = val);
-                  },
-                  activeThumbColor: AppTheme.primaryColor,
+              const SizedBox(width: 14),
+              Container(width: 1, height: 56, color: AppTheme.borderColor),
+              const SizedBox(width: 14),
+              // Bot Type Dropdown
+              Expanded(
+                flex: 6,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Board / Bot Type Selection',
+                      style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 6),
+                    SizedBox(
+                      height: 38,
+                      child: DropdownButtonFormField<CalibrationType>(
+                        initialValue: _selectedBoardType,
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() {
+                              _selectedBoardType = val;
+                            });
+                            _addLog('✓ Switched board calibration profile to: ${val.label}', _LogLevel.info);
+                          }
+                        },
+                        style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textPrimary),
+                        dropdownColor: AppTheme.bgElevated,
+                        decoration: InputDecoration(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                        ),
+                        items: CalibrationType.values.map((ct) => DropdownMenuItem(
+                          value: ct,
+                          child: Text(ct.label),
+                        )).toList(),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(width: 14),
-          */
-          Container(width: 1, height: 56, color: AppTheme.borderColor),
-          const SizedBox(width: 14),
-          // Bot Type Dropdown
-          Expanded(
-            flex: 6,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Board / Bot Type Selection',
-                  style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
-                ),
-                const SizedBox(height: 6),
-                SizedBox(
-                  height: 38,
-                  child: DropdownButtonFormField<CalibrationType>(
-                    initialValue: _selectedBoardType,
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() {
-                          _selectedBoardType = val;
-                        });
-                        _addLog('✓ Switched board calibration profile to: ${val.label}', _LogLevel.info);
-                      }
-                    },
-                    style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textPrimary),
-                    dropdownColor: AppTheme.bgElevated,
-                    decoration: InputDecoration(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+          const SizedBox(height: 12),
+          const Divider(height: 1, color: AppTheme.borderColor),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              // Number to send
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Number to send',
+                      style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
                     ),
-                    items: CalibrationType.values.map((ct) => DropdownMenuItem(
-                      value: ct,
-                      child: Text(ct.label),
-                    )).toList(),
-                  ),
+                    const SizedBox(height: 6),
+                    SizedBox(
+                      height: 38,
+                      child: TextField(
+                        controller: _numberToSendController,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        style: GoogleFonts.jetBrainsMono(fontSize: 13, color: AppTheme.textPrimary),
+                        decoration: const InputDecoration(
+                          hintText: 'e.g. 1',
+                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 14),
+              // Send cycle (ms)
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Send cycle (ms)',
+                      style: GoogleFonts.inter(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 6),
+                    SizedBox(
+                      height: 38,
+                      child: TextField(
+                        controller: _sendCycleController,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        style: GoogleFonts.jetBrainsMono(fontSize: 13, color: AppTheme.textPrimary),
+                        decoration: const InputDecoration(
+                          hintText: 'e.g. 0',
+                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
