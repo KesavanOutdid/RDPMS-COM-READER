@@ -38,18 +38,15 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
         if (_wasConnected == true && !controller.isConnected) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
-              ScaffoldMessenger.of(context).hideCurrentSnackBar();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'USB Device disconnected!',
-                    style: GoogleFonts.inter(fontSize: 12),
-                  ),
-                  backgroundColor: AppTheme.errorColor,
-                  duration: const Duration(seconds: 4),
-                  behavior: SnackBarBehavior.floating,
-                ),
+              _showLeftSnackBar(
+                context,
+                title: 'Device Disconnected',
+                message: 'USB Device disconnected!',
+                borderColor: AppTheme.errorColor.withValues(alpha: 0.3),
+                icon: Icons.error_rounded,
+                iconColor: AppTheme.errorColor,
               );
+              controller.clearLastError();
               Navigator.of(context).popUntil((route) => route.isFirst);
             }
           });
@@ -59,21 +56,13 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
         // Show error snackbar when new error occurs (#13)
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (controller.lastError != null && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  controller.lastError!,
-                  style: GoogleFonts.inter(fontSize: 12),
-                ),
-                backgroundColor: AppTheme.errorColor,
-                duration: const Duration(seconds: 4),
-                behavior: SnackBarBehavior.floating,
-                action: SnackBarAction(
-                  label: 'DISMISS',
-                  textColor: Colors.white,
-                  onPressed: () {},
-                ),
-              ),
+            _showLeftSnackBar(
+              context,
+              title: 'Error Occurred',
+              message: controller.lastError!,
+              borderColor: AppTheme.errorColor.withValues(alpha: 0.3),
+              icon: Icons.error_rounded,
+              iconColor: AppTheme.errorColor,
             );
             controller.clearLastError();
           }
@@ -91,11 +80,12 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
             const SingleActivator(LogicalKeyboardKey.keyE, control: true): () async {
               final result = await controller.exportMessages(controller.activeTabIndex);
               if (result != null && mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(result, style: GoogleFonts.inter(fontSize: 12)),
-                    behavior: SnackBarBehavior.floating,
-                  ),
+                _showLeftSnackBar(
+                  context,
+                  message: result,
+                  borderColor: AppTheme.primaryColor.withValues(alpha: 0.3),
+                  icon: Icons.info_outline,
+                  iconColor: AppTheme.primaryColor,
                 );
               }
             },
@@ -821,62 +811,84 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
   }
 
   void _showConnectionPopup(BuildContext context, bool isSuccess, String message) {
+    _showLeftSnackBar(
+      context,
+      title: isSuccess ? 'Connection Successful' : 'Connection Failed',
+      message: message,
+      borderColor: isSuccess
+          ? const Color(0xFF4ADE80).withValues(alpha: 0.3)
+          : const Color(0xFFF87171).withValues(alpha: 0.3),
+      icon: isSuccess ? Icons.check_circle_rounded : Icons.error_rounded,
+      iconColor: isSuccess ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
+    );
+  }
+
+  void _showLeftSnackBar(BuildContext context, {
+    required String message,
+    String? title,
+    Color? backgroundColor,
+    Color? borderColor,
+    IconData? icon,
+    Color? iconColor,
+    Duration duration = const Duration(seconds: 4),
+  }) {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              isSuccess ? Icons.check_circle_rounded : Icons.error_rounded,
-              color: isSuccess ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
-              size: 20,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    isSuccess ? 'Connection Successful' : 'Connection Failed',
-                    style: GoogleFonts.inter(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    message,
-                    style: GoogleFonts.inter(
-                      color: const Color(0xFF94A3B8),
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.only(left: 16, bottom: 16),
+        duration: duration,
+        content: Align(
+          alignment: Alignment.centerLeft,
+          child: Container(
+            width: 320,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: backgroundColor ?? const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: borderColor ?? const Color(0xFF334155),
+                width: 1.5,
               ),
             ),
-          ],
-        ),
-        backgroundColor: const Color(0xFF1E293B),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(
-            color: isSuccess
-                ? const Color(0xFF4ADE80).withOpacity(0.3)
-                : const Color(0xFFF87171).withOpacity(0.3),
-            width: 1.5,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, color: iconColor ?? Colors.white, size: 20),
+                  const SizedBox(width: 12),
+                ],
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (title != null) ...[
+                        Text(
+                          title,
+                          style: GoogleFonts.inter(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                      ],
+                      Text(
+                        message,
+                        style: GoogleFonts.inter(
+                          color: title != null ? const Color(0xFF94A3B8) : Colors.white,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 4),
-        action: SnackBarAction(
-          label: 'DISMISS',
-          textColor: isSuccess ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
-          onPressed: () {
-            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          },
         ),
       ),
     );

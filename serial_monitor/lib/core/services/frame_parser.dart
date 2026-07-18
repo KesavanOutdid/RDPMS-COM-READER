@@ -63,8 +63,23 @@ class CanFrameParser {
         if (_buffer.length < 11) break; // header not complete yet
         final dlcByte = _buffer[10];
         final dlc = dlcByte & 0x0F;
-        final dataLen = dlcToLength[dlc] ?? dlc;
-        final totalLen = 11 + dataLen;
+        int dataLen = dlcToLength[dlc] ?? dlc;
+        int totalLen = 11 + dataLen;
+
+        // Check if there is an early start of a new frame in the payload area
+        // (i.e. the device sent fewer bytes than the DLC-indicated size)
+        for (int i = 11; i < totalLen && i < _buffer.length; i++) {
+          final b = _buffer[i];
+          final isRxTxStart = b == 0xF1 && i + 1 < _buffer.length && (_buffer[i + 1] == 0x00 || _buffer[i + 1] == 0x01);
+          final isConnectAck = b == 0xA1;
+          final isHeartbeat = b == 0xD1;
+          if (isRxTxStart || isConnectAck || isHeartbeat) {
+            dataLen = i - 11;
+            totalLen = i;
+            break;
+          }
+        }
+
         if (_buffer.length < totalLen) break; // payload not complete yet
         final raw = Uint8List.fromList(_buffer.sublist(0, totalLen));
         _buffer.removeRange(0, totalLen);
@@ -122,9 +137,9 @@ class CanFrameParser {
     final dlcByte = buf[10];
     final dlc = dlcByte & 0x0F;
     final channel = (dlcByte >> 4) & 0x0F;
-    final dataLen = dlcToLength[dlc] ?? dlc;
+    final dataLen = buf.length - 11; // Use the actual length of the received buffer
 
-    final data = buf.sublist(11, 11 + dataLen);
+    final data = buf.sublist(11);
     final canIdStr = '0x${canId.toRadixString(16).toUpperCase().padLeft(isExtended ? 8 : 3, '0')}';
     final dataHex = data
         .map((b) => b.toRadixString(16).toUpperCase().padLeft(2, '0'))

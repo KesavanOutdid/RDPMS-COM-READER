@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/config/app_constants.dart';
 import 'core/controllers/port_controller.dart';
+import 'core/controllers/bulk_firmware_controller.dart';
 import 'core/routes/app_routes.dart';
 import 'utils/theme/app_theme.dart';
 
@@ -26,8 +27,11 @@ class SerialMonitorApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => PortController(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => PortController()),
+        ChangeNotifierProvider(create: (_) => BulkFirmwareController()),
+      ],
       child: Consumer<PortController>(
         builder: (context, controller, _) {
           return MaterialApp(
@@ -51,3 +55,4 @@ class SerialMonitorApp extends StatelessWidget {
     );
   }
 }
+

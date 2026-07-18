@@ -414,12 +414,8 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
         }
         decodedMsg = cmdLabel.isNotEmpty ? '$cmdLabel: $val' : 'Decimal: $val';
         level = _LogLevel.info;
-      } else if (isDigitalCmd && rawBytes.length >= 3) {
-        final List<int> chs = [];
-        for (int i = 1; i + 1 < rawBytes.length; i += 2) {
-          chs.add(readInt(rawBytes, i, 2, true)); // Always Big-Endian
-        }
-        decodedMsg = 'Channels — ${chs.asMap().entries.map((e) => 'Ch${e.key + 1}: ${e.value}').join(', ')}';
+      } else if (isDigitalCmd && rawBytes.length >= 2) {
+        decodedMsg = 'Channels — Ch1: ${rawBytes[1]}';
         level = _LogLevel.info;
       } else if (isAccelCmd && rawBytes.length >= 13) {
         final xMin = readInt(rawBytes, 1, 2, true); // Always Big-Endian
