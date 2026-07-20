@@ -8,32 +8,72 @@ const COLLECTION_NAME = 'tests';
 let client = null;
 let db = null;
 let collection = null;
+let connectPromise = null;
 
+/**
+ * Connect to MongoDB Atlas (or reuse existing active connection).
+ * Handles auto-reconnection and prevents duplicate concurrent connection attempts.
+ */
 async function connect() {
-  if (client) return { db, collection };
-  try {
-    client = new MongoClient(MONGODB_URI);
-    await client.connect();
-    db = client.db(MONGODB_DB_NAME);
-    collection = db.collection(COLLECTION_NAME);
-
-    console.log(`🚀 Connected to MongoDB Atlas: database "${MONGODB_DB_NAME}", collection "${COLLECTION_NAME}"`);
-
-    // Create indexes for high performance (handling 100k+ records without lag)
-    await collection.createIndex({ serialNumber: 1, timestamp: -1 });
-    await collection.createIndex({ timestamp: -1, _id: -1 });
-    console.log('✅ Database indexes verified/created.');
-
+  // If already connected and active, return cached db & collection
+  if (client && client.topology && client.topology.isConnected()) {
     return { db, collection };
-  } catch (err) {
-    console.error('❌ Failed to connect to MongoDB:', err);
-    throw err;
   }
+
+  // Avoid race conditions if connect() is called concurrently
+  if (connectPromise) {
+    return connectPromise;
+  }
+
+  connectPromise = (async () => {
+    try {
+      // Safely close stale client if present
+      if (client) {
+        try {
+          await client.close();
+        } catch (_) {}
+        client = null;
+      }
+
+      client = new MongoClient(MONGODB_URI, {
+        maxPoolSize: 10,
+        serverSelectionTimeoutMS: 10000,
+        socketTimeoutMS: 45000,
+      });
+
+      await client.connect();
+      db = client.db(MONGODB_DB_NAME);
+      collection = db.collection(COLLECTION_NAME);
+
+      console.log(`🚀 Connected to MongoDB Atlas: database "${MONGODB_DB_NAME}", collection "${COLLECTION_NAME}"`);
+
+      // Create indexes for high performance (handling 100k+ records without lag)
+      await collection.createIndex({ serialNumber: 1, timestamp: -1 });
+      await collection.createIndex({ timestamp: -1, _id: -1 });
+      console.log('✅ Database indexes verified/created.');
+
+      return { db, collection };
+    } catch (err) {
+      console.error('❌ Failed to connect to MongoDB:', err.message);
+      client = null;
+      db = null;
+      collection = null;
+      throw err;
+    } finally {
+      connectPromise = null;
+    }
+  })();
+
+  return connectPromise;
 }
 
-function getCollection() {
-  if (!collection) {
-    throw new Error('Database not connected. Call connect() first.');
+/**
+ * Ensures active DB connection and returns collection.
+ * Auto-reconnects if the MongoDB connection was dropped.
+ */
+async function getCollection() {
+  if (!collection || !client || !client.topology || !client.topology.isConnected()) {
+    await connect();
   }
   return collection;
 }
@@ -62,7 +102,7 @@ module.exports = {
   connect,
   
   saveTest: async (record) => {
-    const col = getCollection();
+    const col = await getCollection();
     const serialNumber = (record.serialNumber || 'UNKNOWN').trim();
 
     // Delete existing entry for this serial number if it exists (one entry per serial number)
@@ -84,7 +124,7 @@ module.exports = {
   },
 
   getTests: async (filters = {}) => {
-    const col = getCollection();
+    const col = await getCollection();
     const limit = Math.min(parseInt(filters.limit, 10) || 20, 100);
     const cursor = filters.cursor;
 
@@ -117,10 +157,7 @@ module.exports = {
         const cursorTime = new Date(decoded.timestampMs);
         const cursorId = new ObjectId(decoded.id);
 
-        // For sorted by timestamp desc, _id desc:
-        // (timestamp < cursorTime) OR (timestamp == cursorTime AND _id < cursorId)
         if (query.timestamp) {
-          // If we already have a date range query, intersect it
           const andConditions = [];
           andConditions.push({ timestamp: query.timestamp });
           delete query.timestamp;
@@ -161,7 +198,7 @@ module.exports = {
   },
 
   getUniqueSerialNumbers: async () => {
-    const col = getCollection();
+    const col = await getCollection();
     const sns = await col.distinct('serialNumber');
     return sns.filter(Boolean).sort();
   }
