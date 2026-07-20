@@ -20,6 +20,7 @@ class SerialPortService {
   bool _isConnected = false;
   String _connectedPort = '';
   List<String> _availablePorts = const [];
+  bool _isCanMode = true;
 
   // ── Local frame parser ──
   final CanFrameParser _frameParser = CanFrameParser();
@@ -36,6 +37,7 @@ class SerialPortService {
 
   // ── Callback API (identical to the previous version) ──
   Function(Uint8List data)? onDataReceived;
+  Function(Uint8List data)? onRawDataReceived;
   Function(Map<String, dynamic> frame)? onCanFrameRx;
   Function(Map<String, dynamic> frame)? onCanFrameTx;
   Function(String error)? onError;
@@ -50,6 +52,7 @@ class SerialPortService {
   bool get isConnected => _isConnected;
   String get portName => _connectedPort;
   List<String> get availablePorts => List.unmodifiable(_availablePorts);
+  bool get isCanMode => _isCanMode;
 
   static List<String> getAvailablePorts() => sp.SerialPort.availablePorts.toSet().toList();
   static String getPortDescription(String portName) {
@@ -111,9 +114,26 @@ class SerialPortService {
       pConfig.baudRate = config.baudRate;
       pConfig.bits = config.dataBits;
       pConfig.stopBits = config.stopBits;
+      
+      pConfig.parity = {
+        0: sp.SerialPortParity.none,
+        1: sp.SerialPortParity.odd,
+        2: sp.SerialPortParity.even,
+        3: sp.SerialPortParity.mark,
+        4: sp.SerialPortParity.space,
+      }[config.parity] ?? sp.SerialPortParity.none;
+
+      final nativeFlowControl = {
+        0: sp.SerialPortFlowControl.none,
+        1: sp.SerialPortFlowControl.rtsCts,
+        2: sp.SerialPortFlowControl.xonXoff,
+      }[config.flowControl] ?? sp.SerialPortFlowControl.none;
+      pConfig.setFlowControl(nativeFlowControl);
+
       _port!.config = pConfig;
 
       _isConnected = true;
+      _isCanMode = canConfig != null;
       _connectedPort = config.portName;
       _frameParser.clear();
 
@@ -204,6 +224,11 @@ class SerialPortService {
   void _onRawBytesReceived(Uint8List data) {
     // Forward raw bytes to any listener (e.g. firmware upload OK detection)
     onDataReceived?.call(data);
+
+    if (!_isCanMode) {
+      onRawDataReceived?.call(data);
+      return;
+    }
 
     _frameParser.addBytes(data);
     final frames = _frameParser.parseAll();

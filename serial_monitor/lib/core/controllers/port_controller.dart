@@ -14,11 +14,20 @@ class PortController extends ChangeNotifier {
   // Connection state
   final SerialPortConfig _config = SerialPortConfig();
   final CanConfig _canConfig = CanConfig();
+  bool _isCanMode = true;
   bool _isConnecting = false;
   String _statusMessage = 'Disconnected';
   List<String> _availablePorts = [];
   DateTime? _lastHeartbeatAckAt;
   int _heartbeatMissCount = 0;
+
+  bool get isCanMode => _isCanMode;
+
+  void setCanMode(bool value) {
+    _isCanMode = value;
+    _saveConfig();
+    notifyListeners();
+  }
 
   // Error notification queue
   final List<String> _errorLog = [];
@@ -80,6 +89,7 @@ class PortController extends ChangeNotifier {
     // for temporary use by firmware upload (OK response detection).
     _service.onCanFrameRx = _handleCanFrameRx;
     _service.onCanFrameTx = _handleCanFrameTx;
+    _service.onRawDataReceived = _handleRawDataReceived;
     _service.onError = _handleError;
     _service.onDisconnected = _handleDisconnected;
     _service.onPortsChanged = _handlePortsChanged;
@@ -157,7 +167,7 @@ class PortController extends ChangeNotifier {
 
     bool success = false;
     try {
-      success = await _service.connect(_config, canConfig: _canConfig);
+      success = await _service.connect(_config, canConfig: _isCanMode ? _canConfig : null);
     } catch (error) {
       _statusMessage = 'Error: $error';
       _isConnecting = false;
@@ -368,7 +378,6 @@ class PortController extends ChangeNotifier {
     }
 
     final sendSequence = tab.sendSequences[sequenceIndex];
-    final hasCanId = sendSequence.canIdHex.trim().isNotEmpty;
     final needsPayload = sendSequence.canFrameType != CanFrameType.remote;
 
     if (needsPayload && sendSequence.sequence.trim().isEmpty) {
@@ -381,6 +390,11 @@ class PortController extends ChangeNotifier {
     }
     tab.selectedSendSequenceIndex = sequenceIndex;
 
+    if (!_isCanMode) {
+      return _sendDataInternal(sendSequence.sequence, format: sendSequence.format);
+    }
+
+    final hasCanId = sendSequence.canIdHex.trim().isNotEmpty;
     if (hasCanId) {
       return await _sendSequenceAsCanFrame(sendSequence);
     }
@@ -437,12 +451,7 @@ class PortController extends ChangeNotifier {
       return false;
     }
 
-    // Convert to hex format for the serial service.
-    final outboundMessage = selectedFormat == DisplayFormat.ascii
-        ? input
-        : formatSequenceBytes(bytes, DisplayFormat.hex);
-
-    final success = _service.sendMessage(outboundMessage);
+    final success = _service.sendData(bytes);
     if (success) {
       _totalBytesSent += bytes.length;
 
@@ -566,6 +575,23 @@ class PortController extends ChangeNotifier {
     );
 
     // Add to ALL tabs (received data goes to every tab)
+    for (final tab in _tabs) {
+      tab.addMessage(message);
+    }
+    notifyListeners();
+  }
+
+  void _handleRawDataReceived(Uint8List data) {
+    _totalBytesReceived += data.length;
+
+    final message = SerialMessage(
+      text: String.fromCharCodes(data),
+      rawBytes: data,
+      direction: MessageDirection.received,
+      timestamp: DateTime.now(),
+      tabIndex: -1,
+    );
+
     for (final tab in _tabs) {
       tab.addMessage(message);
     }
@@ -754,6 +780,7 @@ class PortController extends ChangeNotifier {
       await prefs.setInt('canFdDataBaud', _canConfig.fdDataBaud.index);
       await prefs.setBool('canBrsEnabled', _canConfig.brsEnabled);
       await prefs.setBool('canNonIso', _canConfig.nonIso);
+      await prefs.setBool('isCanMode', _isCanMode);
 
       // Tabs persistence (#5)
       final tabsJson = jsonEncode(_tabs.map((t) => t.toJson()).toList());
@@ -798,6 +825,7 @@ class PortController extends ChangeNotifier {
       }
       _canConfig.brsEnabled = prefs.getBool('canBrsEnabled') ?? false;
       _canConfig.nonIso = prefs.getBool('canNonIso') ?? false;
+      _isCanMode = prefs.getBool('isCanMode') ?? true;
 
       // Tabs persistence (#5)
       final savedTabs = prefs.getString('savedTabs');

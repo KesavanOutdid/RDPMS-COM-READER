@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RDPMS - Device Verification Reports</title>
+  <!-- Modern Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <style>
+    /* Styling tokens & Modern System Colors */
+    :root {
+      --bg-darkest: #0f172a;
+      --bg-dark: #1e293b;
+      --bg-card: #0f172a;
+      --border-color: #334155;
+      --border-light: #1e293b;
+      
+      --text-bright: #f8fafc;
+      --text-primary: #cbd5e1;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      
+      --primary-color: #3b82f6;
+      --primary-hover: #2563eb;
+      --success-color: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.15);
+      --error-color: #ef4444;
+      --error-bg: rgba(239, 68, 68, 0.15);
+      --accent-orange: #f97316;
+      --accent-cyan: #06b6d4;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-darkest);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    header {
+      background-color: var(--bg-dark);
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, var(--primary-color), #2563eb);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 800;
+      font-size: 18px;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+
+    .brand-text h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-bright);
+      letter-spacing: -0.5px;
+    }
+
+    .brand-text p {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    .btn {
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 10px 18px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      outline: none;
+    }
+
+    .btn-primary {
+      background-color: var(--primary-color);
+      color: #fff;
+      border: none;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--primary-hover);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+    }
+
+    .btn-outline {
+      background-color: transparent;
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn-outline:hover {
+      background-color: rgba(255, 255, 255, 0.05);
+      border-color: var(--text-secondary);
+    }
+
+    .main-layout {
+      flex: 1;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 32px;
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 32px;
+    }
+
+    /* Sidebar controls */
+    .filter-panel {
+      background-color: var(--bg-dark);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 24px;
+      height: fit-content;
+      position: sticky;
+      top: 100px;
+    }
+
+    .panel-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-bright);
+      margin-bottom: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .form-group {
+      margin-bottom: 18px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+
+    .form-control {
+      width: 100%;
+      background-color: var(--bg-darkest);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 10px 12px;
+      color: var(--text-bright);
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    .form-control:focus {
+      border-color: var(--primary-color);
+    }
+
+    .form-control option {
+      background-color: var(--bg-darkest);
+    }
+
+    /* Stats Grid */
+    .dashboard-content {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    .stat-card {
+      background-color: var(--bg-dark);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .stat-card::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background-color: var(--primary-color);
+    }
+
+    .stat-card.success::after { background-color: var(--success-color); }
+    .stat-card.error::after { background-color: var(--error-color); }
+    .stat-card.accent::after { background-color: var(--accent-orange); }
+
+    .stat-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text-bright);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Records Table Card */
+    .table-card {
+      background-color: var(--bg-dark);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      min-height: 400px;
+    }
+
+    .table-container {
+      overflow-x: auto;
+      max-height: 600px;
+      overflow-y: auto;
+      position: relative;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13px;
+    }
+
+    th {
+      background-color: var(--border-light);
+      color: var(--text-secondary);
+      font-weight: 600;
+      padding: 14px 18px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    td {
+      padding: 12px 18px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      color: var(--text-primary);
+      vertical-align: top;
+    }
+
+    tr:hover td {
+      background-color: rgba(255, 255, 255, 0.01);
+    }
+
+    .mono-cell {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 500;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 4px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+
+    .badge-success {
+      background-color: var(--success-bg);
+      color: var(--success-color);
+    }
+
+    .badge-error {
+      background-color: var(--error-bg);
+      color: var(--error-color);
+    }
+
+    .badge-voltage {
+      background-color: rgba(59, 130, 246, 0.15);
+      color: var(--primary-color);
+    }
+
+    .badge-current {
+      background-color: rgba(249, 115, 22, 0.15);
+      color: var(--accent-orange);
+    }
+
+    /* Inner Ref Table */
+    .sub-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 11px;
+    }
+    .sub-table th {
+      background: rgba(255,255,255,0.05);
+      padding: 6px 10px;
+      font-size: 10px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .sub-table td {
+      padding: 6px 10px;
+      font-size: 11px;
+      border-bottom: 1px solid rgba(255,255,255,0.02);
+    }
+
+    /* Loading Indicators */
+    .loading-row {
+      text-align: center;
+      padding: 20px;
+      color: var(--text-muted);
+      font-weight: 500;
+      display: none;
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 64px 32px;
+      color: var(--text-muted);
+      text-align: center;
+      gap: 12px;
+    }
+
+    .empty-state svg {
+      width: 48px;
+      height: 48px;
+      stroke: var(--text-muted);
+      opacity: 0.6;
+    }
+
+    .empty-state h3 {
+      color: var(--text-secondary);
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    /* Print Template Overlay */
+    .print-only-header {
+      display: none;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PRINT DESIGN SPECIFICATIONS (1 Serial Number Per Page)
+       ═══════════════════════════════════════════════════════════════ */
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 15mm;
+      }
+
+      body {
+        background-color: #fff !important;
+        color: #000 !important;
+        font-size: 11px !important;
+      }
+      
+      header, 
+      .filter-panel, 
+      .header-actions,
+      .btn,
+      .loading-row,
+      .stats-grid,
+      .no-print {
+        display: none !important;
+      }
+
+      .main-layout {
+        grid-template-columns: 1fr !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        gap: 0 !important;
+      }
+
+      .dashboard-content {
+        gap: 0 !important;
+      }
+
+      .table-card {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+      }
+
+      .table-container {
+        max-height: none !important;
+        overflow-y: visible !important;
+      }
+
+      /* Hide main outer table header on print */
+      #records-table > thead {
+        display: none !important;
+      }
+
+      /* Each record printed as 1 standalone page certificate */
+      .device-print-card {
+        page-break-after: always;
+        break-after: page;
+        padding: 20px 0;
+        min-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .print-header-box {
+        border-bottom: 2px solid #1e3a8a;
+        padding-bottom: 10px;
+        margin-bottom: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+      }
+
+      .print-title {
+        font-size: 16px;
+        font-weight: 800;
+        color: #1e3a8a;
+        text-transform: uppercase;
+      }
+
+      .print-subtitle {
+        font-size: 9px;
+        color: #475569;
+      }
+
+      .print-info-grid {
+        background-color: #f8fafc;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 12px 16px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .print-subtable {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+        font-size: 11px;
+      }
+
+      .print-subtable th {
+        background-color: #1e3a8a !important;
+        color: #ffffff !important;
+        font-weight: 700;
+        padding: 8px 10px;
+        border: 1px solid #1e3a8a;
+        text-align: left;
+      }
+
+      .print-subtable td {
+        border: 1px solid #cbd5e1;
+        padding: 8px 10px;
+        color: #0f172a;
+      }
+
+      /* Verification Signature Footer on Bottom Right */
+      .print-footer-box {
+        margin-top: 40px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+      }
+
+      .verified-by-card {
+        width: 220px;
+        border: 1px solid #94a3b8;
+        border-radius: 6px;
+        padding: 10px 14px;
+        background-color: #f8fafc;
+      }
+
+      .verified-title {
+        font-weight: 800;
+        font-size: 10px;
+        color: #0f172a;
+        margin-bottom: 8px;
+        border-bottom: 1px solid #cbd5e1;
+        padding-bottom: 4px;
+      }
+
+      .verified-line {
+        font-size: 9.5px;
+        color: #334155;
+        margin-top: 8px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Web Header (hidden in print) -->
+  <header>
+    <div class="brand-container">
+      <div class="brand-logo">R</div>
+      <div class="brand-text">
+        <h1>RDPMS Device Verification</h1>
+        <p>Verification Reports & Quality Control</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-outline" onclick="resetFilters()">Clear Filters</button>
+      <button class="btn btn-primary" onclick="window.print()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+        Print PDF Report
+      </button>
+    </div>
+  </header>
+
+  <div class="main-layout">
+    <!-- Filter Panel Sidebar (hidden in print) -->
+    <aside class="filter-panel">
+      <div class="panel-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+        Search Filters
+      </div>
+      
+      <div class="form-group">
+        <label for="serial-dropdown">Serial Number</label>
+        <select id="serial-dropdown" class="form-control" onchange="filterChanged()">
+          <option value="All">All Serial Numbers</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="start-date">Start Date</label>
+        <input type="date" id="start-date" class="form-control" onchange="filterChanged()">
+      </div>
+
+      <div class="form-group">
+        <label for="end-date">End Date</label>
+        <input type="date" id="end-date" class="form-control" onchange="filterChanged()">
+      </div>
+    </aside>
+
+    <!-- Report Dashboard Content -->
+    <main class="dashboard-content">
+      <!-- Stats Cards -->
+      <section class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Tests</div>
+          <div id="stat-total" class="stat-value">0</div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-label">Passed</div>
+          <div id="stat-passed" class="stat-value">0</div>
+        </div>
+        <div class="stat-card error">
+          <div class="stat-label">Failed</div>
+          <div id="stat-failed" class="stat-value">0</div>
+        </div>
+        <div class="stat-card accent">
+          <div class="stat-label">Pass Rate</div>
+          <div id="stat-rate" class="stat-value">0%</div>
+        </div>
+      </section>
+
+      <!-- Records Table Container -->
+      <section class="table-card">
+        <div class="table-container" id="scroll-container">
+          <table id="records-table">
+            <thead>
+              <tr>
+                <th>Date & Time</th>
+                <th>Serial Number</th>
+                <th>Board Profile</th>
+                <th>Verification Points</th>
+                <th>Result</th>
+                <th class="no-print">Unique ID (UUID)</th>
+              </tr>
+            </thead>
+            <tbody id="table-body">
+              <!-- Dynamically populated rows -->
+            </tbody>
+          </table>
+          
+          <div class="empty-state" id="empty-view">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            <h3>No Records Found</h3>
+            <p>No verification records match the selected filter criteria.</p>
+          </div>
+          
+          <div class="loading-row" id="loading-indicator">
+            Loading next records...
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const API_URL = '/api/tests';
+    let nextCursor = null;
+    let isLoading = false;
+    let allRecords = [];
+    
+    window.addEventListener('DOMContentLoaded', async () => {
+      await loadSerialNumbers();
+      await refreshData();
+      
+      const container = document.getElementById('scroll-container');
+      container.addEventListener('scroll', () => {
+        if (container.scrollTop + container.clientHeight >= container.scrollHeight - 40) {
+          loadNextPage();
+        }
+      });
+    });
+
+    async function loadSerialNumbers() {
+      try {
+        const res = await fetch(`${API_URL}/serial-numbers`);
+        const json = await res.json();
+        if (json.success) {
+          const dropdown = document.getElementById('serial-dropdown');
+          dropdown.innerHTML = '<option value="All">All Serial Numbers</option>';
+          json.serialNumbers.forEach(sn => {
+            const opt = document.createElement('option');
+            opt.value = sn;
+            opt.innerText = sn;
+            dropdown.appendChild(opt);
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load serial numbers:', err);
+      }
+    }
+
+    function buildQueryString(useCursor = false) {
+      const serial = document.getElementById('serial-dropdown').value;
+      const start = document.getElementById('start-date').value;
+      const end = document.getElementById('end-date').value;
+      
+      const params = new URLSearchParams();
+      if (serial !== 'All') params.append('serialNumber', serial);
+      if (start) params.append('startDate', start);
+      if (end) params.append('endDate', end);
+      params.append('limit', '30');
+      
+      if (useCursor && nextCursor) {
+        params.append('cursor', nextCursor);
+      }
+      
+      return params.toString();
+    }
+
+    async function refreshData() {
+      if (isLoading) return;
+      isLoading = true;
+      nextCursor = null;
+      allRecords = [];
+      
+      const tableBody = document.getElementById('table-body');
+      tableBody.innerHTML = '';
+      document.getElementById('empty-view').style.display = 'none';
+      
+      try {
+        const queryStr = buildQueryString(false);
+        const res = await fetch(`${API_URL}?${queryStr}`);
+        const json = await res.json();
+        
+        if (json.success) {
+          allRecords = json.records;
+          nextCursor = json.nextCursor;
+          
+          renderRows(json.records);
+          updateStatistics();
+        }
+      } catch (err) {
+        console.error('Error fetching data:', err);
+      } finally {
+        isLoading = false;
+      }
+    }
+
+    async function loadNextPage() {
+      if (isLoading || !nextCursor) return;
+      isLoading = true;
+      document.getElementById('loading-indicator').style.display = 'block';
+      
+      try {
+        const queryStr = buildQueryString(true);
+        const res = await fetch(`${API_URL}?${queryStr}`);
+        const json = await res.json();
+        
+        if (json.success) {
+          allRecords = allRecords.concat(json.records);
+          nextCursor = json.nextCursor;
+          
+          renderRows(json.records);
+          updateStatistics();
+        }
+      } catch (err) {
+        console.error('Error fetching next page:', err);
+      } finally {
+        isLoading = false;
+        document.getElementById('loading-indicator').style.display = 'none';
+      }
+    }
+
+    function renderRows(records) {
+      const tableBody = document.getElementById('table-body');
+      
+      if (allRecords.length === 0) {
+        document.getElementById('empty-view').style.display = 'flex';
+        return;
+      }
+      
+      records.forEach(rec => {
+        const tr = document.createElement('tr');
+        tr.className = 'device-print-card';
+        
+        const dateObj = new Date(rec.timestamp);
+        const dateStr = dateObj.toLocaleDateString('en-US', { dateStyle: 'medium' }) + ' ' + 
+                        dateObj.toLocaleTimeString('en-US', { timeStyle: 'short' });
+        
+        const isPass = rec.result === 'success' || rec.result === 'PASS';
+        const resultBadgeClass = isPass ? 'badge badge-success' : 'badge badge-error';
+        const resultLabel = isPass ? 'PASS' : 'FAIL';
+
+        const boardType = rec.boardType || (rec.paramType ? rec.paramType.toUpperCase() : 'N/A');
+        const unit = boardType.toLowerCase().includes('current') ? ' A' : ' V';
+        const rows = Array.isArray(rec.testRows) ? rec.testRows : [];
+
+        // Generate sub-table HTML for multi-ref rows
+        let subTableHtml = '';
+        if (rows.length > 0) {
+          subTableHtml = `
+            <table class="sub-table print-subtable">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Ref Point</th>
+                  <th>Tol (%)</th>
+                  <th>CH1 Measured</th>
+                  <th>CH1 Status</th>
+                  <th>CH2 Measured</th>
+                  <th>CH2 Status</th>
+                  <th>Row Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.map((r, i) => `
+                  <tr>
+                    <td>#${i + 1}</td>
+                    <td>${r.ref !== undefined ? r.ref + unit : 'N/A'}</td>
+                    <td>${r.tolerance !== undefined ? r.tolerance + '%' : '1.0%'}</td>
+                    <td>${r.useCh1 ? (r.ch1Value !== null ? r.ch1Value + unit : '---') : 'OFF'}</td>
+                    <td>${r.useCh1 ? (r.ch1Result || 'PENDING') : 'OFF'}</td>
+                    <td>${r.useCh2 ? (r.ch2Value !== null ? r.ch2Value + unit : '---') : 'OFF'}</td>
+                    <td>${r.useCh2 ? (r.ch2Result || 'PENDING') : 'OFF'}</td>
+                    <td><strong>${r.result || 'PENDING'}</strong></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `;
+        } else {
+          subTableHtml = `<div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Legacy record format</div>`;
+        }
+
+        tr.innerHTML = `
+          <div class="print-header-box no-screen" style="display: none;">
+            <div>
+              <div class="print-title">RDPMS QUALITY CONTROL TEST REPORT</div>
+              <div class="print-subtitle">Official Quality Assurance & Device Verification Certificate</div>
+            </div>
+            <div style="text-align: right;">
+              <strong style="color: #1e3a8a;">RDPMS AUTOMATION</strong><br>
+              <span style="font-size: 9px; color: #64748b;">Printed: ${new Date().toLocaleDateString('en-US')}</span>
+            </div>
+          </div>
+
+          <div class="no-screen" style="display: none;">
+            <div class="print-info-grid">
+              <div>
+                <strong>SERIAL NUMBER:</strong> <span style="font-size: 13px; font-weight: 800;">${rec.serialNumber}</span><br>
+                <span style="font-size: 10px; color: #475569;">Board Profile: ${boardType} | Tested At: ${dateStr}</span>
+              </div>
+              <div style="padding: 6px 12px; border-radius: 4px; border: 1.5px solid ${isPass ? '#059669' : '#dc2626'}; color: ${isPass ? '#059669' : '#dc2626'}; font-weight: 800;">
+                QC RESULT: ${resultLabel}
+              </div>
+            </div>
+          </div>
+
+          <!-- Web Screen Layout -->
+          <td class="no-print">${dateStr}</td>
+          <td class="mono-cell no-print">${rec.serialNumber}</td>
+          <td class="no-print"><span class="badge badge-voltage">${boardType}</span></td>
+          <td>${subTableHtml}</td>
+          <td class="no-print"><span class="${resultBadgeClass}">${resultLabel}</span></td>
+          <td class="mono-cell no-print" style="font-size: 10px; color: var(--text-muted);">${rec.id}</td>
+
+          <!-- Print Footer with Verified By (Bottom-Right) -->
+          <div class="print-footer-box no-screen" style="display: none;">
+            <div style="font-size: 8px; color: #64748b;">
+              RDPMS Quality Control System - Official Certificate<br>
+              Electronically generated & verified via Atlas Database.
+            </div>
+            <div class="verified-by-card">
+              <div class="verified-title">VERIFIED BY (QUALITY ASSURANCE)</div>
+              <div class="verified-line">Name: ______________________</div>
+              <div class="verified-line">Sign:  ______________________</div>
+              <div class="verified-line">Date:  ______________________</div>
+            </div>
+          </div>
+        `;
+        
+        tableBody.appendChild(tr);
+      });
+    }
+
+    function updateStatistics() {
+      const total = allRecords.length;
+      const passed = allRecords.filter(r => r.result === 'success' || r.result === 'PASS').length;
+      const failed = total - passed;
+      const rate = total > 0 ? Math.round((passed / total) * 100) : 0;
+      
+      document.getElementById('stat-total').innerText = total;
+      document.getElementById('stat-passed').innerText = passed;
+      document.getElementById('stat-failed').innerText = failed;
+      document.getElementById('stat-rate').innerText = `${rate}%`;
+    }
+
+    function filterChanged() {
+      refreshData();
+    }
+
+    function resetFilters() {
+      document.getElementById('serial-dropdown').value = 'All';
+      document.getElementById('start-date').value = '';
+      document.getElementById('end-date').value = '';
+      refreshData();
+    }
+  </script>
+</body>
+</html>

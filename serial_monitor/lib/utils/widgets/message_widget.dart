@@ -9,6 +9,7 @@ class MessageWidget extends StatelessWidget {
   final DisplayFormat displayFormat;
   final int index;
   final bool isEven;
+  final bool isCanMode;
 
   const MessageWidget({
     super.key,
@@ -16,6 +17,7 @@ class MessageWidget extends StatelessWidget {
     required this.displayFormat,
     required this.index,
     required this.isEven,
+    this.isCanMode = true,
   });
 
   @override
@@ -73,8 +75,10 @@ class MessageWidget extends StatelessWidget {
           ),
           _cell(idxStr, 60, textStyle.copyWith(color: AppTheme.textMuted)),
           _cell(sysTime, 110, textStyle),
-          _cell(tStamp, 110, textStyle),
-          _cell(ch, 70, textStyle),
+          if (isCanMode) ...[
+            _cell(tStamp, 110, textStyle),
+            _cell(ch, 70, textStyle),
+          ],
           _cell(
             dir,
             80,
@@ -83,10 +87,12 @@ class MessageWidget extends StatelessWidget {
               fontWeight: FontWeight.w500,
             ),
           ),
-          _cell(fId, 90, monoStyle.copyWith(color: AppTheme.accentOrange)),
-          _cell(type, 70, textStyle),
-          _cell(format, 80, textStyle),
-          _cell(dlc, 60, monoStyle),
+          if (isCanMode) ...[
+            _cell(fId, 90, monoStyle.copyWith(color: AppTheme.accentOrange)),
+            _cell(type, 70, textStyle),
+            _cell(format, 80, textStyle),
+            _cell(dlc, 60, monoStyle),
+          ],
           Expanded(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),

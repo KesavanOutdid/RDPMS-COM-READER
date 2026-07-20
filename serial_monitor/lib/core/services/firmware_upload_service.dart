@@ -179,6 +179,12 @@ class FirmwareUploadService {
     required bool isExtended,
     required bool isFD,
   }) {
+    if (!_serialService.isConnected) return false;
+
+    if (!_serialService.isCanMode) {
+      return _serialService.sendData(Uint8List.fromList(payload));
+    }
+
     final maxPayload = isFD ? 64 : 8;
 
     for (int offset = 0; offset < payload.length; offset += maxPayload) {
@@ -387,43 +393,45 @@ class FirmwareUploadService {
   Future<_AckResponse> _waitForAck({Duration? timeoutOverride}) async {
     final completer = Completer<_AckResponse>();
 
-    // Intercept CAN RX
-    _serialService.onCanFrameRx = (Map<String, dynamic> frame) {
-      if (!completer.isCompleted) {
-        final dataHex = frame['dataHex'] as String? ?? '';
-        final hexParts = dataHex.split(' ').where((s) => s.isNotEmpty).toList();
-        if (hexParts.isEmpty) return;
+    final savedRx = _serialService.onCanFrameRx;
+    final savedData = _serialService.onDataReceived;
 
-        final firstByte = hexParts[0].toUpperCase();
-        final secondByte = hexParts.length >= 2 ? hexParts[1].toUpperCase() : '';
+    void handleIncomingHexParts(List<String> hexParts) {
+      if (hexParts.isEmpty) return;
 
-        // ACK: 0x79 or 0x4F4B (OK) (§3.2)
-        if (firstByte == '79' || (firstByte == '4F' && secondByte == '4B')) {
-          // Extract version string if present (completion ACK)
-          String versionStr = '';
-          if (hexParts.length > 8) {
-            for (int i = 8; i < hexParts.length; i++) {
-              final byte = int.tryParse(hexParts[i], radix: 16) ?? 0;
-              if (byte == 0) break;
-              if (byte >= 32 && byte <= 126) {
-                versionStr += String.fromCharCode(byte);
-              } else {
-                break;
-              }
-            }
-            if (versionStr.endsWith('.')) {
-              versionStr += '0';
+      final firstByte = hexParts[0].toUpperCase();
+      final secondByte = hexParts.length >= 2 ? hexParts[1].toUpperCase() : '';
+
+      // ACK: 0x79 or 0x4F4B (OK) (§3.2)
+      if (firstByte == '79' || (firstByte == '4F' && secondByte == '4B')) {
+        // Extract version string if present (completion ACK)
+        String versionStr = '';
+        if (hexParts.length > 8) {
+          for (int i = 8; i < hexParts.length; i++) {
+            final byte = int.tryParse(hexParts[i], radix: 16) ?? 0;
+            if (byte == 0) break;
+            if (byte >= 32 && byte <= 126) {
+              versionStr += String.fromCharCode(byte);
+            } else {
+              break;
             }
           }
+          if (versionStr.endsWith('.')) {
+            versionStr += '0';
+          }
+        }
+        if (!completer.isCompleted) {
           completer.complete(_AckResponse(
             result: _AckCode.ok,
             rawByte: firstByte,
             versionString: versionStr,
           ));
         }
-        // NACK: 0xE1–0xE7
-        else if (firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E5' || firstByte == 'E6' || firstByte == 'E7') {
-          final errCode = int.tryParse(firstByte, radix: 16) ?? 0;
+      }
+      // NACK: 0xE1–0xE7
+      else if (firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E5' || firstByte == 'E6' || firstByte == 'E7') {
+        final errCode = int.tryParse(firstByte, radix: 16) ?? 0;
+        if (!completer.isCompleted) {
           completer.complete(_AckResponse(
             result: _AckCode.error,
             rawByte: firstByte,
@@ -431,7 +439,20 @@ class FirmwareUploadService {
           ));
         }
       }
-    };
+    }
+
+    if (!_serialService.isCanMode) {
+      _serialService.onDataReceived = (Uint8List data) {
+        final hexParts = data.map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).toList();
+        handleIncomingHexParts(hexParts);
+      };
+    } else {
+      _serialService.onCanFrameRx = (Map<String, dynamic> frame) {
+        final dataHex = frame['dataHex'] as String? ?? '';
+        final hexParts = dataHex.split(' ').where((s) => s.isNotEmpty).toList();
+        handleIncomingHexParts(hexParts);
+      };
+    }
 
     _cancelCheckTimer?.cancel();
     _cancelCheckTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) {
@@ -448,6 +469,8 @@ class FirmwareUploadService {
     } finally {
       _cancelCheckTimer?.cancel();
       _cancelCheckTimer = null;
+      _serialService.onCanFrameRx = savedRx;
+      _serialService.onDataReceived = savedData;
     }
   }
 

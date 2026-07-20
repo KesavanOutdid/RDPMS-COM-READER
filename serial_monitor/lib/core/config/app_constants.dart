@@ -6,6 +6,11 @@ class AppConstants {
   static const String appName = 'RDPMS Serial Monitor';
   static const String appVersion = '1.0.0';
 
+  // Backend API Server Config (Host machine IP for local network sharing)
+  static const String backendHost = '192.168.0.12';
+  static const int backendPort = 3001;
+  static const String apiBaseUrl = 'http://$backendHost:$backendPort/api';
+
   // Tab Limits
   static const int maxTabs = 20;
   static const int maxMessagesPerTab = 5000;

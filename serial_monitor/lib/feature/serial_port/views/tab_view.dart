@@ -22,6 +22,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
   final ScrollController _scrollController = ScrollController();
   final ScrollController _horizontalScrollController = ScrollController();
   final TextEditingController _frameIdController = TextEditingController();
+  final TextEditingController _sendInputController = TextEditingController();
 
   String _localFrameId = '';
   String _localDirection = 'All';
@@ -38,6 +39,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
     _scrollController.dispose();
     _horizontalScrollController.dispose();
     _frameIdController.dispose();
+    _sendInputController.dispose();
     super.dispose();
   }
 
@@ -152,8 +154,10 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                   children: [
                     _buildFilterBar(controller, tab),
                     Expanded(
-                      child: _buildMessageArea(tab, controller.canConfig.canType == CanType.canFd),
+                      child: _buildMessageArea(tab, controller.canConfig.canType == CanType.canFd, controller.isCanMode),
                     ),
+                    if (!controller.isCanMode)
+                      _buildSendInputBar(controller, tab),
                   ],
                 ),
               ),
@@ -165,187 +169,208 @@ class _TabViewWidgetState extends State<TabViewWidget> {
   }
 
   Widget _buildFilterBar(PortController controller, SerialTab tab) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: const BoxDecoration(
-        color: AppTheme.panelHeader,
-        border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
-      ),
-      child: Row(
-        children: [
-          // Frame ID Filter
-          Expanded(
-            child: SizedBox(
-              height: 28,
-              child: TextField(
-                controller: _frameIdController,
-                style: GoogleFonts.jetBrainsMono(fontSize: 11, color: AppTheme.textPrimary),
-                decoration: InputDecoration(
-                  hintText: 'Filter Frame ID (e.g. 0x002)',
-                  hintStyle: GoogleFonts.inter(fontSize: 11, color: AppTheme.textMuted),
-                  prefixIcon: const Icon(Icons.search, size: 14, color: AppTheme.textMuted),
-                  contentPadding: const EdgeInsets.only(top: 0, bottom: 0, right: 8),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(4),
-                    borderSide: const BorderSide(color: AppTheme.borderColor),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(4),
-                    borderSide: const BorderSide(color: AppTheme.borderColor),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(4),
-                    borderSide: const BorderSide(color: AppTheme.primaryColor),
-                  ),
-                  fillColor: AppTheme.bgInput,
-                  filled: true,
-                ),
-                onChanged: (val) {
-                  _localFrameId = val;
-                },
-                onSubmitted: (_) => _applyFilters(controller),
-              ),
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 600;
+        final isVeryNarrow = constraints.maxWidth < 350;
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: const BoxDecoration(
+            color: AppTheme.panelHeader,
+            border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
           ),
-          const SizedBox(width: 10),
-          // Direction Filter Dropdown
-          SizedBox(
-            height: 28,
-            width: 140,
-            child: DropdownButtonFormField<String>(
-              key: ValueKey('dir_$_localDirection'),
-              initialValue: _localDirection,
-              style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textPrimary),
-              dropdownColor: AppTheme.bgElevated,
-              decoration: InputDecoration(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(4),
-                  borderSide: const BorderSide(color: AppTheme.borderColor),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(4),
-                  borderSide: const BorderSide(color: AppTheme.borderColor),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(4),
-                  borderSide: const BorderSide(color: AppTheme.primaryColor),
-                ),
-                fillColor: AppTheme.bgInput,
-                filled: true,
-              ),
-              items: const [
-                DropdownMenuItem(value: 'All', child: Text('All Directions')),
-                DropdownMenuItem(value: 'TX', child: Text('TX Only')),
-                DropdownMenuItem(value: 'RX', child: Text('RX Only')),
-              ],
-              onChanged: (val) {
-                if (val != null) {
-                  setState(() {
-                    _localDirection = val;
-                  });
-                }
-              },
-            ),
-          ),
-          const SizedBox(width: 10),
-          // Channel Filter Dropdown
-          SizedBox(
-            height: 28,
-            width: 140,
-            child: DropdownButtonFormField<String>(
-              key: ValueKey('chan_$_localChannel'),
-              initialValue: _localChannel,
-              style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textPrimary),
-              dropdownColor: AppTheme.bgElevated,
-              decoration: InputDecoration(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(4),
-                  borderSide: const BorderSide(color: AppTheme.borderColor),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(4),
-                  borderSide: const BorderSide(color: AppTheme.borderColor),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(4),
-                  borderSide: const BorderSide(color: AppTheme.primaryColor),
-                ),
-                fillColor: AppTheme.bgInput,
-                filled: true,
-              ),
-              items: const [
-                DropdownMenuItem(value: 'All', child: Text('All Channels')),
-                DropdownMenuItem(value: 'Channel 1', child: Text('Channel 1')),
-                DropdownMenuItem(value: 'Channel 2', child: Text('Channel 2')),
-              ],
-              onChanged: (val) {
-                if (val != null) {
-                  setState(() {
-                    _localChannel = val;
-                  });
-                }
-              },
-            ),
-          ),
-          const SizedBox(width: 10),
-          // Apply Button
-          SizedBox(
-            height: 28,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                backgroundColor: AppTheme.primaryColor,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                elevation: 0,
-              ),
-              icon: const Icon(Icons.check, size: 14, color: Colors.white),
-              label: Text(
-                'Apply',
-                style: GoogleFonts.inter(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
-              ),
-              onPressed: () => _applyFilters(controller),
-            ),
-          ),
-          const SizedBox(width: 8),
-          // Clear Button
-          SizedBox(
-            height: 28,
-            child: Builder(
-              builder: (context) {
-                final bool isAnyFilterApplied = tab.filterFrameId.isNotEmpty || tab.filterDirection != 'All' || tab.filterChannel != 'All';
-                return OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    foregroundColor: isAnyFilterApplied ? AppTheme.textSecondary : AppTheme.textMuted.withValues(alpha: 0.5),
-                    side: BorderSide(color: isAnyFilterApplied ? AppTheme.borderColor : AppTheme.borderColor.withValues(alpha: 0.5)),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(4),
+          child: Row(
+            children: [
+              // Frame ID Filter
+              Expanded(
+                child: SizedBox(
+                  height: 28,
+                  child: TextField(
+                    controller: _frameIdController,
+                    style: GoogleFonts.jetBrainsMono(fontSize: 11, color: AppTheme.textPrimary),
+                    decoration: InputDecoration(
+                      hintText: isVeryNarrow ? 'Filter...' : isNarrow ? 'ID Filter' : 'Filter Frame ID (e.g. 0x002)',
+                      hintStyle: GoogleFonts.inter(fontSize: 11, color: AppTheme.textMuted),
+                      prefixIcon: const Icon(Icons.search, size: 14, color: AppTheme.textMuted),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.only(top: 0, bottom: 0, right: 8),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        borderSide: const BorderSide(color: AppTheme.borderColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        borderSide: const BorderSide(color: AppTheme.borderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        borderSide: const BorderSide(color: AppTheme.primaryColor),
+                      ),
+                      fillColor: AppTheme.bgInput,
+                      filled: true,
                     ),
+                    onChanged: (val) {
+                      _localFrameId = val;
+                    },
+                    onSubmitted: (_) => _applyFilters(controller),
                   ),
-                  icon: Icon(Icons.filter_alt_off, size: 14, color: isAnyFilterApplied ? AppTheme.textSecondary : AppTheme.textMuted.withValues(alpha: 0.5)),
-                  label: Text(
-                    'Clear',
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
+                ),
+              ),
+              if (!isVeryNarrow) ...[
+                const SizedBox(width: 10),
+                // Direction Filter Dropdown
+                SizedBox(
+                  height: 28,
+                  width: isNarrow ? 90 : 140,
+                  child: DropdownButtonFormField<String>(
+                    key: ValueKey('dir_$_localDirection'),
+                    initialValue: _localDirection,
+                    isDense: true,
+                    isExpanded: true,
+                    style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textPrimary),
+                    dropdownColor: AppTheme.bgElevated,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        borderSide: const BorderSide(color: AppTheme.borderColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        borderSide: const BorderSide(color: AppTheme.borderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        borderSide: const BorderSide(color: AppTheme.primaryColor),
+                      ),
+                      fillColor: AppTheme.bgInput,
+                      filled: true,
                     ),
+                    items: isNarrow
+                        ? const [
+                            DropdownMenuItem(value: 'All', child: Text('All')),
+                            DropdownMenuItem(value: 'TX', child: Text('TX')),
+                            DropdownMenuItem(value: 'RX', child: Text('RX')),
+                          ]
+                        : const [
+                            DropdownMenuItem(value: 'All', child: Text('All Directions')),
+                            DropdownMenuItem(value: 'TX', child: Text('TX Only')),
+                            DropdownMenuItem(value: 'RX', child: Text('RX Only')),
+                          ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() {
+                          _localDirection = val;
+                        });
+                      }
+                    },
                   ),
-                  onPressed: isAnyFilterApplied ? () => _clearFilters(controller) : null,
-                );
-              }
-            ),
+                ),
+                const SizedBox(width: 10),
+                // Channel Filter Dropdown
+                SizedBox(
+                  height: 28,
+                  width: isNarrow ? 90 : 140,
+                  child: DropdownButtonFormField<String>(
+                    key: ValueKey('chan_$_localChannel'),
+                    initialValue: _localChannel,
+                    isDense: true,
+                    isExpanded: true,
+                    style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textPrimary),
+                    dropdownColor: AppTheme.bgElevated,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        borderSide: const BorderSide(color: AppTheme.borderColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        borderSide: const BorderSide(color: AppTheme.borderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        borderSide: const BorderSide(color: AppTheme.primaryColor),
+                      ),
+                      fillColor: AppTheme.bgInput,
+                      filled: true,
+                    ),
+                    items: isNarrow
+                        ? const [
+                            DropdownMenuItem(value: 'All', child: Text('All')),
+                            DropdownMenuItem(value: 'Channel 1', child: Text('CH 1')),
+                            DropdownMenuItem(value: 'Channel 2', child: Text('CH 2')),
+                          ]
+                        : const [
+                            DropdownMenuItem(value: 'All', child: Text('All Channels')),
+                            DropdownMenuItem(value: 'Channel 1', child: Text('Channel 1')),
+                            DropdownMenuItem(value: 'Channel 2', child: Text('Channel 2')),
+                          ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() {
+                          _localChannel = val;
+                        });
+                      }
+                    },
+                  ),
+                ),
+              ],
+              const SizedBox(width: 10),
+              // Apply Button
+              SizedBox(
+                height: 28,
+                child: Tooltip(
+                  message: 'Apply Filters',
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(28, 28),
+                      backgroundColor: AppTheme.primaryColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      elevation: 0,
+                    ),
+                    onPressed: () => _applyFilters(controller),
+                    child: const Icon(Icons.check, size: 14, color: Colors.white),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Clear Button
+              SizedBox(
+                height: 28,
+                child: Builder(
+                  builder: (context) {
+                    final bool isAnyFilterApplied = tab.filterFrameId.isNotEmpty || tab.filterDirection != 'All' || tab.filterChannel != 'All';
+                    return Tooltip(
+                      message: 'Clear Filters',
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(28, 28),
+                          foregroundColor: isAnyFilterApplied ? AppTheme.textSecondary : AppTheme.textMuted.withValues(alpha: 0.5),
+                          side: BorderSide(color: isAnyFilterApplied ? AppTheme.borderColor : AppTheme.borderColor.withValues(alpha: 0.5)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        onPressed: isAnyFilterApplied ? () => _clearFilters(controller) : null,
+                        child: Icon(Icons.filter_alt_off, size: 14, color: isAnyFilterApplied ? AppTheme.textSecondary : AppTheme.textMuted.withValues(alpha: 0.5)),
+                      ),
+                    );
+                  }
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -428,14 +453,54 @@ class _TabViewWidgetState extends State<TabViewWidget> {
     );
   }
 
-  Widget _buildMessageArea(SerialTab tab, bool isFd) {
+  Widget _buildMessageArea(SerialTab tab, bool isFd, bool isCanMode) {
     final displayMessages = tab.filteredMessages;
 
     return Container(
       color: AppTheme.consoleBackground,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final double minTotalWidth = isFd ? 2200.0 : 1000.0;
+          if (!isCanMode) {
+            final hasActiveFilter = tab.filterDirection != 'All' || tab.filterChannel != 'All';
+            if (displayMessages.isEmpty) {
+              return Center(
+                child: Text(
+                  hasActiveFilter ? 'No matching messages' : 'No communication data yet',
+                  style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textMuted),
+                ),
+              );
+            }
+            return Scrollbar(
+              controller: _scrollController,
+              thumbVisibility: true,
+              interactive: true,
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (ScrollNotification notification) {
+                  if (notification is ScrollUpdateNotification) {
+                    final metrics = notification.metrics;
+                    if (metrics.axis == Axis.vertical) {
+                      tab.autoScroll = metrics.pixels >= metrics.maxScrollExtent - 20;
+                    }
+                  }
+                  return false;
+                },
+                child: ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemCount: displayMessages.length,
+                  itemBuilder: (context, index) {
+                    return _ConsoleRowWithContextMenu(
+                      message: displayMessages[index],
+                      displayFormat: tab.displayFormat,
+                      index: index + 1,
+                    );
+                  },
+                ),
+              ),
+            );
+          }
+
+          final double minTotalWidth = isCanMode ? (isFd ? 2200.0 : 1000.0) : 500.0;
           final double tableWidth = constraints.maxWidth > minTotalWidth
               ? constraints.maxWidth
               : minTotalWidth;
@@ -445,7 +510,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _buildTableHeader(),
+                _buildTableHeader(isCanMode),
                 Expanded(
                   child: Center(
                     child: Column(
@@ -491,7 +556,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _buildTableHeader(),
+                    _buildTableHeader(isCanMode),
                     Expanded(
                       child: NotificationListener<ScrollNotification>(
                         onNotification: (ScrollNotification notification) {
@@ -513,6 +578,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
                               displayFormat: tab.displayFormat,
                               index: index + 1,
                               isEven: index % 2 == 0,
+                              isCanMode: isCanMode,
                             );
                           },
                         ),
@@ -538,7 +604,7 @@ class _TabViewWidgetState extends State<TabViewWidget> {
     );
   }
 
-  Widget _buildTableHeader() {
+  Widget _buildTableHeader(bool isCanMode) {
     final style = GoogleFonts.inter(
       fontSize: 10,
       fontWeight: FontWeight.w600,
@@ -555,13 +621,17 @@ class _TabViewWidgetState extends State<TabViewWidget> {
           const SizedBox(width: 24),
           _headerCell('Index', 60, style),
           _headerCell('System Time', 110, style),
-          _headerCell('Time Stamp', 110, style),
-          _headerCell('Channel', 70, style),
+          if (isCanMode) ...[
+            _headerCell('Time Stamp', 110, style),
+            _headerCell('Channel', 70, style),
+          ],
           _headerCell('Direction', 80, style),
-          _headerCell('Frame ID', 90, style),
-          _headerCell('Type', 70, style),
-          _headerCell('Format', 80, style),
-          _headerCell('DLC', 60, style),
+          if (isCanMode) ...[
+            _headerCell('Frame ID', 90, style),
+            _headerCell('Type', 70, style),
+            _headerCell('Format', 80, style),
+            _headerCell('DLC', 60, style),
+          ],
           Expanded(
             child: _headerCell('Data', double.infinity, style),
           ),
@@ -585,8 +655,153 @@ class _TabViewWidgetState extends State<TabViewWidget> {
       ),
     );
   }
-}
+  Widget _buildSendInputBar(PortController controller, SerialTab tab) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 300;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: const BoxDecoration(
+            color: AppTheme.panelHeader,
+            border: Border(top: BorderSide(color: AppTheme.borderColor)),
+          ),
+          child: Row(
+            children: [
+              _buildSendFormatSelector(controller, tab),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(
+                  height: 32,
+                  child: TextField(
+                    controller: _sendInputController,
+                    style: GoogleFonts.jetBrainsMono(fontSize: 13, color: AppTheme.textPrimary),
+                    inputFormatters: [
+                      if (tab.sendFormat == DisplayFormat.binary)
+                        FilteringTextInputFormatter.allow(RegExp(r'[01\s]'))
+                      else if (tab.sendFormat == DisplayFormat.hex)
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9a-fA-F\s]'))
+                      else if (tab.sendFormat == DisplayFormat.decimal)
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9\s]')),
+                    ],
+                    decoration: InputDecoration(
+                      hintText: isNarrow
+                          ? 'Message...'
+                          : tab.sendFormat == DisplayFormat.ascii
+                              ? 'Type ASCII message here...'
+                              : tab.sendFormat == DisplayFormat.hex
+                                  ? 'Type HEX message here (e.g. 53 41 49)...'
+                                  : tab.sendFormat == DisplayFormat.decimal
+                                      ? 'Type decimal message here (e.g. 83 65 73)...'
+                                      : 'Type binary message here (e.g. 0101 0000)...',
+                      hintStyle: GoogleFonts.inter(fontSize: 12, color: AppTheme.textMuted),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      filled: true,
+                      fillColor: AppTheme.bgInput,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        borderSide: const BorderSide(color: AppTheme.borderColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        borderSide: const BorderSide(color: AppTheme.borderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        borderSide: const BorderSide(color: AppTheme.primaryColor),
+                      ),
+                    ),
+                    onChanged: (val) {
+                      setState(() {});
+                    },
+                    onSubmitted: (value) {
+                      if (value.isNotEmpty) {
+                        _sendInputMessage(controller);
+                      }
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 32,
+                child: isNarrow
+                    ? Tooltip(
+                        message: 'Send',
+                        child: ElevatedButton(
+                          onPressed: controller.isConnected && _sendInputController.text.isNotEmpty
+                              ? () => _sendInputMessage(controller)
+                              : null,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryColor,
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(36, 32),
+                          ),
+                          child: const Icon(Icons.send_rounded, size: 14),
+                        ),
+                      )
+                    : ElevatedButton.icon(
+                        onPressed: controller.isConnected && _sendInputController.text.isNotEmpty
+                            ? () => _sendInputMessage(controller)
+                            : null,
+                        icon: const Icon(Icons.send_rounded, size: 14),
+                        label: Text('Send', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryColor,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
+  Widget _buildSendFormatSelector(PortController controller, SerialTab tab) {
+    return Container(
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: AppTheme.bgInput,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: AppTheme.borderColor),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<DisplayFormat>(
+          value: tab.sendFormat,
+          isDense: true,
+          dropdownColor: AppTheme.bgElevated,
+          style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textPrimary, fontWeight: FontWeight.w600),
+          items: DisplayFormat.values.map((f) {
+            return DropdownMenuItem<DisplayFormat>(
+              value: f,
+              child: Text(_displayFormatLabel(f)),
+            );
+          }).toList(),
+          onChanged: (value) {
+            if (value != null) {
+              controller.setSendFormat(widget.tabIndex, value);
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  void _sendInputMessage(PortController controller) {
+    final text = _sendInputController.text;
+    if (text.isEmpty) return;
+    
+    final success = controller.sendData(text);
+    if (success) {
+      _sendInputController.clear();
+      _scrollToBottom();
+      setState(() {});
+    }
+  }
+}
 
 /// Message row with right-click context menu (#10)
 class _MessageRowWithContextMenu extends StatelessWidget {
@@ -594,12 +809,14 @@ class _MessageRowWithContextMenu extends StatelessWidget {
   final DisplayFormat displayFormat;
   final int index;
   final bool isEven;
+  final bool isCanMode;
 
   const _MessageRowWithContextMenu({
     required this.message,
     required this.displayFormat,
     required this.index,
     required this.isEven,
+    required this.isCanMode,
   });
 
   @override
@@ -613,6 +830,7 @@ class _MessageRowWithContextMenu extends StatelessWidget {
         displayFormat: displayFormat,
         index: index,
         isEven: isEven,
+        isCanMode: isCanMode,
       ),
     );
   }
@@ -638,17 +856,19 @@ class _MessageRowWithContextMenu extends StatelessWidget {
           height: 32,
           child: _menuItem(Icons.content_copy, 'Copy Data'),
         ),
-        PopupMenuItem(
-          value: 'copy_id',
-          height: 32,
-          child: _menuItem(Icons.tag, 'Copy CAN ID'),
-        ),
-        const PopupMenuDivider(height: 1),
-        PopupMenuItem(
-          value: 'filter_id',
-          height: 32,
-          child: _menuItem(Icons.filter_alt, 'Filter by this ID'),
-        ),
+        if (isCanMode) ...[
+          PopupMenuItem(
+            value: 'copy_id',
+            height: 32,
+            child: _menuItem(Icons.tag, 'Copy CAN ID'),
+          ),
+          const PopupMenuDivider(height: 1),
+          PopupMenuItem(
+            value: 'filter_id',
+            height: 32,
+            child: _menuItem(Icons.filter_alt, 'Filter by this ID'),
+          ),
+        ],
       ],
     ).then((value) {
       if (value == null) return;
@@ -740,6 +960,125 @@ class _GroupPanel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class ConsoleMessageRow extends StatelessWidget {
+  final SerialMessage message;
+  final DisplayFormat displayFormat;
+  final int index;
+
+  const ConsoleMessageRow({
+    super.key,
+    required this.message,
+    required this.displayFormat,
+    required this.index,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isSent = message.direction == MessageDirection.sent;
+    final sysTime = message.formattedTime;
+    final dir = isSent ? 'TX' : 'RX';
+    final dataStr = message.getFormatted(displayFormat);
+
+    final timeStyle = GoogleFonts.jetBrainsMono(
+      fontSize: 12,
+      color: AppTheme.textMuted,
+    );
+    final dirStyle = GoogleFonts.jetBrainsMono(
+      fontSize: 12,
+      fontWeight: FontWeight.w700,
+      color: isSent ? AppTheme.sentColor : AppTheme.receivedColor,
+    );
+    final dataStyle = GoogleFonts.jetBrainsMono(
+      fontSize: 12,
+      color: isSent ? AppTheme.textPrimary : AppTheme.accentCyan,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(text: '[$sysTime] ', style: timeStyle),
+            TextSpan(text: '[$dir] ', style: dirStyle),
+            TextSpan(text: dataStr, style: dataStyle),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConsoleRowWithContextMenu extends StatelessWidget {
+  final SerialMessage message;
+  final DisplayFormat displayFormat;
+  final int index;
+
+  const _ConsoleRowWithContextMenu({
+    required this.message,
+    required this.displayFormat,
+    required this.index,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onSecondaryTapDown: (details) {
+        _showContextMenu(context, details.globalPosition);
+      },
+      child: ConsoleMessageRow(
+        message: message,
+        displayFormat: displayFormat,
+        index: index,
+      ),
+    );
+  }
+
+  void _showContextMenu(BuildContext context, Offset position) {
+    final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    showMenu(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & const Size(40, 40),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        PopupMenuItem(
+          value: 'copy_row',
+          height: 32,
+          child: _menuItem(Icons.copy, 'Copy Line'),
+        ),
+        PopupMenuItem(
+          value: 'copy_data',
+          height: 32,
+          child: _menuItem(Icons.content_copy, 'Copy Data'),
+        ),
+      ],
+    ).then((value) {
+      if (value == null) return;
+      final dataStr = message.getFormatted(displayFormat);
+      if (value == 'copy_row') {
+        Clipboard.setData(ClipboardData(text: '[${message.formattedTime}] [${message.directionLabel}] $dataStr'));
+      } else if (value == 'copy_data') {
+        Clipboard.setData(ClipboardData(text: dataStr));
+      }
+    });
+  }
+
+  Widget _menuItem(IconData icon, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: AppTheme.textSecondary),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textPrimary),
+        ),
+      ],
     );
   }
 }

@@ -61,6 +61,7 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
   final List<_LogEntry> _log = [];
   final ScrollController _logScrollController = ScrollController();
   Function(Map<String, dynamic>)? _oldCanFrameRx;
+  Function(Uint8List)? _oldDataReceived;
   CalibrationCommand? _lastSentCmd;
   int _rxResponseCount = 0;
 
@@ -159,18 +160,34 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
     super.initState();
     // Intercept RX frames to show response events in the activity log
     _oldCanFrameRx = widget.serialService.onCanFrameRx;
-    widget.serialService.onCanFrameRx = (frame) {
-      if (_oldCanFrameRx != null) {
-        _oldCanFrameRx!(frame);
-      }
-      _handleIncomingCanFrame(frame);
-    };
+    _oldDataReceived = widget.serialService.onDataReceived;
+
+    if (!widget.serialService.isCanMode) {
+      widget.serialService.onDataReceived = (data) {
+        if (_oldDataReceived != null) {
+          _oldDataReceived!(data);
+        }
+        final dataHex = data.map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ');
+        _handleIncomingCanFrame({
+          'canId': '0x000',
+          'dataHex': dataHex,
+        });
+      };
+    } else {
+      widget.serialService.onCanFrameRx = (frame) {
+        if (_oldCanFrameRx != null) {
+          _oldCanFrameRx!(frame);
+        }
+        _handleIncomingCanFrame(frame);
+      };
+    }
     _addLog('System initialized. Ready to perform calibration operations.', _LogLevel.info);
   }
 
   @override
   void dispose() {
     widget.serialService.onCanFrameRx = _oldCanFrameRx;
+    widget.serialService.onDataReceived = _oldDataReceived;
     _canIdController.dispose();
     _payloadController.dispose();
     _decInputController.dispose();
@@ -600,13 +617,15 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
         await Future.delayed(Duration(milliseconds: delayMs));
       }
 
-      final success = widget.serialService.sendCanFrame(
-        canId: canIdStr,
-        data: frameData,
-        channel: widget.channel,
-        isExtended: _isExtended,
-        isFD: widget.isFD,
-      );
+      final success = widget.serialService.isCanMode
+          ? widget.serialService.sendCanFrame(
+              canId: canIdStr,
+              data: frameData,
+              channel: widget.channel,
+              isExtended: _isExtended,
+              isFD: widget.isFD,
+            )
+          : widget.serialService.sendData(Uint8List.fromList(frameData));
 
       if (success) {
         _lastSentCmd = cmd;

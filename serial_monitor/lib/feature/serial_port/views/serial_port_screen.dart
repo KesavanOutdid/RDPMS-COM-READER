@@ -12,6 +12,8 @@ import 'tab_view.dart';
 import '../../firmware_upload/views/firmware_upload_dialog.dart';
 import '../../firmware_upload/views/bulk_firmware_dialog.dart';
 import 'calibration_dialog.dart';
+import 'device_test_dialog.dart';
+import 'reports_screen.dart';
 
 /// Docklight-style serial monitor screen.
 /// Left pane: Send Sequences (full height)
@@ -173,10 +175,84 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
   }
 
   Widget _buildStatusStrip(PortController controller) {
-    final canConfig = controller.canConfig;
     final connectionText = controller.isConnected
         ? 'Communication port open'
         : 'Communication port closed';
+
+    if (!controller.isCanMode) {
+      final parityLabel = {
+        0: 'None',
+        1: 'Odd',
+        2: 'Even',
+        3: 'Mark',
+        4: 'Space',
+      }[controller.config.parity] ?? 'None';
+      
+      final flowLabel = {
+        0: 'None',
+        1: 'RTS/CTS',
+        2: 'XON/XOFF',
+      }[controller.config.flowControl] ?? 'None';
+
+      return Container(
+        height: 36,
+        decoration: const BoxDecoration(
+          color: AppTheme.bgDark,
+          border: Border(bottom: BorderSide(color: AppTheme.borderColor, width: 1)),
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: controller.isConnected
+                      ? AppTheme.successColor
+                      : AppTheme.errorColor,
+                  boxShadow: [
+                    BoxShadow(
+                      color: (controller.isConnected
+                              ? AppTheme.successColor
+                              : AppTheme.errorColor)
+                          .withValues(alpha: 0.5),
+                      blurRadius: 6,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                connectionText,
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: controller.isConnected
+                      ? AppTheme.successColor
+                      : AppTheme.textMuted,
+                ),
+              ),
+              const SizedBox(width: 16),
+              _statusCell('Raw Serial Mode'),
+              _statusCell(
+                controller.config.portName.isEmpty
+                    ? 'No Port'
+                    : controller.config.portName,
+              ),
+              _statusCell('${controller.config.baudRate} bps'),
+              _statusCell('${controller.config.dataBits}-$parityLabel-${controller.config.stopBits}'),
+              if (controller.config.flowControl > 0)
+                _statusCell('Flow: $flowLabel'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final canConfig = controller.canConfig;
     final canTypeLabel = canConfig.canType == CanType.classicCan
         ? 'Classic CAN'
         : 'CAN FD';
@@ -243,223 +319,491 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
   }
 
   Widget _buildControlStrip(PortController controller) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: const BoxDecoration(
-        color: AppTheme.bgMedium,
-        border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          _buildDropdown<String>(
-            width: 110,
-            value: controller.availablePorts.contains(
-              controller.config.portName,
-            )
-                ? controller.config.portName
-                : null,
-            hint: 'Port',
-            items: controller.availablePorts,
-            onChanged: controller.isConnected
-                ? null
-                : (value) {
-                    if (value != null) {
-                      controller.updateConfig(portName: value);
-                    }
-                  },
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 820;
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: const BoxDecoration(
+            color: AppTheme.bgMedium,
+            border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
           ),
-          const SizedBox(width: 6),
-          SizedBox(
-            height: 30,
-            child: OutlinedButton.icon(
-              onPressed: controller.isConnected
-                  ? null
-                  : controller.refreshPorts,
-              icon: const Icon(Icons.refresh, size: 14),
-              label: Text('Refresh', style: GoogleFonts.inter(fontSize: 11)),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppTheme.textSecondary,
-                side: const BorderSide(color: AppTheme.borderColor),
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          SizedBox(
-            height: 30,
-            child: Builder(
-              builder: (context) => ElevatedButton.icon(
-                onPressed: controller.isConnecting
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _buildDropdown<String>(
+                width: isNarrow ? 90 : 110,
+                value: controller.availablePorts.contains(
+                  controller.config.portName,
+                )
+                    ? controller.config.portName
+                    : null,
+                hint: 'Port',
+                items: controller.availablePorts,
+                onChanged: controller.isConnected
                     ? null
-                    : () async {
-                        if (!controller.isConnected) {
-                          final shouldConnect = await _showCanConfigDialog(context, controller);
-                          if (shouldConnect == true) {
-                            await controller.connect();
-                            if (context.mounted) {
-                              _showConnectionPopup(context, controller.isConnected, controller.statusMessage);
-                            }
-                          }
-                        } else {
-                          await controller.disconnect();
+                    : (value) {
+                        if (value != null) {
+                          controller.updateConfig(portName: value);
                         }
                       },
-                icon: Icon(
-                  controller.isConnected ? Icons.link_off : Icons.link,
-                  size: 14,
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: controller.isConnected
-                      ? AppTheme.errorColor
-                      : AppTheme.primaryColor,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                ),
-                label: Text(
-                  controller.isConnecting
-                      ? 'Connecting...'
-                      : controller.isConnected
-                          ? 'Disconnect'
-                          : 'Connect',
-                  style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(width: 6),
+              SizedBox(
+                height: 30,
+                child: isNarrow
+                    ? Tooltip(
+                        message: 'Refresh Ports',
+                        child: OutlinedButton(
+                          onPressed: controller.isConnected
+                              ? null
+                              : controller.refreshPorts,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.textSecondary,
+                            side: const BorderSide(color: AppTheme.borderColor),
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(30, 30),
+                          ),
+                          child: const Icon(Icons.refresh, size: 14),
+                        ),
+                      )
+                    : OutlinedButton.icon(
+                        onPressed: controller.isConnected
+                            ? null
+                            : controller.refreshPorts,
+                        icon: const Icon(Icons.refresh, size: 14),
+                        label: Text('Refresh', style: GoogleFonts.inter(fontSize: 11)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.textSecondary,
+                          side: const BorderSide(color: AppTheme.borderColor),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                        ),
+                      ),
+              ),
+              const SizedBox(width: 6),
+              SizedBox(
+                height: 30,
+                child: Builder(
+                  builder: (context) {
+                    final connectAction = controller.isConnecting
+                        ? null
+                        : () async {
+                            if (!controller.isConnected) {
+                              final shouldConnect = await _showCanConfigDialog(context, controller);
+                              if (shouldConnect == true) {
+                                await controller.connect();
+                                if (context.mounted) {
+                                  _showConnectionPopup(context, controller.isConnected, controller.statusMessage);
+                                }
+                              }
+                            } else {
+                              await controller.disconnect();
+                            }
+                          };
+                    final connectIcon = Icon(
+                      controller.isConnected ? Icons.link_off : Icons.link,
+                      size: 14,
+                    );
+                    final connectLabel = controller.isConnecting
+                        ? 'Connecting...'
+                        : controller.isConnected
+                            ? 'Disconnect'
+                            : 'Connect';
+                    final connectBg = controller.isConnected
+                        ? AppTheme.errorColor
+                        : AppTheme.primaryColor;
+
+                    return isNarrow
+                        ? Tooltip(
+                            message: connectLabel,
+                            child: ElevatedButton(
+                              onPressed: connectAction,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: connectBg,
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(36, 30),
+                              ),
+                              child: connectIcon,
+                            ),
+                          )
+                        : ElevatedButton.icon(
+                            onPressed: connectAction,
+                            icon: connectIcon,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: connectBg,
+                              padding: const EdgeInsets.symmetric(horizontal: 14),
+                            ),
+                            label: Text(
+                              connectLabel,
+                              style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600),
+                            ),
+                          );
+                  },
                 ),
               ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          SizedBox(
-            height: 30,
-            child: Builder(
-              builder: (context) {
-                final isFdMode = controller.isConnected && controller.canConfig.canType == CanType.canFd;
-                return OutlinedButton.icon(
-                  onPressed: isFdMode
-                      ? () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => FirmwareUploadDialog(
-                                serialService: controller.service,
-                                isFD: controller.canConfig.canType == CanType.canFd,
-                                channel: controller.canConfig.channel.value,
+              const SizedBox(width: 6),
+              SizedBox(
+                height: 30,
+                child: Builder(
+                  builder: (context) {
+                    final isFdMode = controller.isConnected &&
+                        (!controller.isCanMode ||
+                            controller.canConfig.canType == CanType.canFd);
+                    return isNarrow
+                        ? Tooltip(
+                            message: 'Firmware Update',
+                            child: OutlinedButton(
+                              onPressed: isFdMode
+                                  ? () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => FirmwareUploadDialog(
+                                            serialService: controller.service,
+                                            isFD: controller.isCanMode
+                                                ? (controller.canConfig.canType ==
+                                                    CanType.canFd)
+                                                : true,
+                                            channel: controller.isCanMode
+                                                ? controller.canConfig.channel.value
+                                                : 0,
+                                          ),
+                                        ),
+                                      )
+                                  : null,
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppTheme.accentOrange,
+                                side: BorderSide(
+                                  color: isFdMode
+                                      ? AppTheme.accentOrange.withValues(alpha: 0.5)
+                                      : AppTheme.borderColor,
+                                ),
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(30, 30),
                               ),
+                              child: const Icon(Icons.memory_rounded, size: 14),
                             ),
                           )
-                      : null,
-                  icon: const Icon(Icons.memory_rounded, size: 14),
-                  label: Text('Firmware', style: GoogleFonts.inter(fontSize: 11)),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.accentOrange,
-                    side: BorderSide(
-                      color: isFdMode
-                          ? AppTheme.accentOrange.withValues(alpha: 0.5)
-                          : AppTheme.borderColor,
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                  ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(width: 6),
-          SizedBox(
-            height: 30,
-            child: Builder(
-              builder: (context) {
-                final isFdMode = controller.isConnected && controller.canConfig.canType == CanType.canFd;
-                return OutlinedButton.icon(
-                  onPressed: isFdMode
-                      ? () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => BulkFirmwareDialog(
-                                serialService: controller.service,
-                                channel: controller.canConfig.channel.value,
-                                isExtended: false,
+                        : OutlinedButton.icon(
+                            onPressed: isFdMode
+                                ? () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => FirmwareUploadDialog(
+                                          serialService: controller.service,
+                                          isFD: controller.isCanMode
+                                              ? (controller.canConfig.canType ==
+                                                  CanType.canFd)
+                                              : true,
+                                          channel: controller.isCanMode
+                                              ? controller.canConfig.channel.value
+                                              : 0,
+                                        ),
+                                      ),
+                                    )
+                                : null,
+                            icon: const Icon(Icons.memory_rounded, size: 14),
+                            label: Text('Firmware', style: GoogleFonts.inter(fontSize: 11)),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.accentOrange,
+                              side: BorderSide(
+                                color: isFdMode
+                                    ? AppTheme.accentOrange.withValues(alpha: 0.5)
+                                    : AppTheme.borderColor,
                               ),
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
                             ),
-                          )
-                      : null,
-                  icon: const Icon(Icons.hub, size: 14),
-                  label: Text('Bulk OTA', style: GoogleFonts.inter(fontSize: 11)),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.accentCyan,
-                    side: BorderSide(
-                      color: isFdMode
-                          ? AppTheme.accentCyan.withValues(alpha: 0.5)
-                          : AppTheme.borderColor,
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                  ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(width: 6),
-          SizedBox(
-            height: 30,
-            child: Builder(
-              builder: (context) {
-                final isConnected = controller.isConnected;
-                return OutlinedButton.icon(
-                  onPressed: isConnected
-                      ? () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => CalibrationDialog(
-                                serialService: controller.service,
-                                isFD: controller.canConfig.canType == CanType.canFd,
-                                channel: controller.canConfig.channel.value,
-                              ),
-                            ),
-                          )
-                      : null,
-                  icon: const Icon(Icons.tune_rounded, size: 14),
-                  label: Text('Calibration', style: GoogleFonts.inter(fontSize: 11)),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.primaryColor,
-                    side: BorderSide(
-                      color: isConnected
-                          ? AppTheme.primaryColor.withValues(alpha: 0.5)
-                          : AppTheme.borderColor,
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                  ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              controller.statusMessage,
-              style: GoogleFonts.inter(
-                fontSize: 11,
-                color: AppTheme.textMuted,
+                          );
+                  },
+                ),
               ),
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.right,
-            ),
+              const SizedBox(width: 6),
+              SizedBox(
+                height: 30,
+                child: Builder(
+                  builder: (context) {
+                    final isFdMode = controller.isConnected &&
+                        (!controller.isCanMode ||
+                            controller.canConfig.canType == CanType.canFd);
+                    return isNarrow
+                        ? Tooltip(
+                            message: 'Bulk OTA Update',
+                            child: OutlinedButton(
+                              onPressed: isFdMode
+                                  ? () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => BulkFirmwareDialog(
+                                            serialService: controller.service,
+                                            channel: controller.isCanMode
+                                                ? controller.canConfig.channel.value
+                                                : 0,
+                                            isExtended: false,
+                                          ),
+                                        ),
+                                      )
+                                  : null,
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppTheme.accentCyan,
+                                side: BorderSide(
+                                  color: isFdMode
+                                      ? AppTheme.accentCyan.withValues(alpha: 0.5)
+                                      : AppTheme.borderColor,
+                                ),
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(30, 30),
+                              ),
+                              child: const Icon(Icons.hub, size: 14),
+                            ),
+                          )
+                        : OutlinedButton.icon(
+                            onPressed: isFdMode
+                                ? () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => BulkFirmwareDialog(
+                                          serialService: controller.service,
+                                          channel: controller.isCanMode
+                                              ? controller.canConfig.channel.value
+                                              : 0,
+                                          isExtended: false,
+                                        ),
+                                      ),
+                                    )
+                                : null,
+                            icon: const Icon(Icons.hub, size: 14),
+                            label: Text('Bulk OTA', style: GoogleFonts.inter(fontSize: 11)),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.accentCyan,
+                              side: BorderSide(
+                                color: isFdMode
+                                    ? AppTheme.accentCyan.withValues(alpha: 0.5)
+                                    : AppTheme.borderColor,
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                            ),
+                          );
+                  },
+                ),
+              ),
+              const SizedBox(width: 6),
+              SizedBox(
+                height: 30,
+                child: Builder(
+                  builder: (context) {
+                    final isCalibEnabled = controller.isConnected;
+                    return isNarrow
+                        ? Tooltip(
+                            message: 'Device Calibration',
+                            child: OutlinedButton(
+                              onPressed: isCalibEnabled
+                                  ? () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => CalibrationDialog(
+                                            serialService: controller.service,
+                                            isFD: controller.isCanMode
+                                                ? (controller.canConfig.canType ==
+                                                    CanType.canFd)
+                                                : true,
+                                            channel: controller.isCanMode
+                                                ? controller.canConfig.channel.value
+                                                : 0,
+                                          ),
+                                        ),
+                                      )
+                                  : null,
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppTheme.primaryColor,
+                                side: BorderSide(
+                                  color: isCalibEnabled
+                                      ? AppTheme.primaryColor.withValues(alpha: 0.5)
+                                      : AppTheme.borderColor,
+                                ),
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(30, 30),
+                              ),
+                              child: const Icon(Icons.tune_rounded, size: 14),
+                            ),
+                          )
+                        : OutlinedButton.icon(
+                            onPressed: isCalibEnabled
+                                ? () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => CalibrationDialog(
+                                          serialService: controller.service,
+                                          isFD: controller.isCanMode
+                                              ? (controller.canConfig.canType ==
+                                                  CanType.canFd)
+                                              : true,
+                                          channel: controller.isCanMode
+                                              ? controller.canConfig.channel.value
+                                              : 0,
+                                        ),
+                                      ),
+                                    )
+                                : null,
+                            icon: const Icon(Icons.tune_rounded, size: 14),
+                            label: Text('Calibration', style: GoogleFonts.inter(fontSize: 11)),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.primaryColor,
+                              side: BorderSide(
+                                color: isCalibEnabled
+                                    ? AppTheme.primaryColor.withValues(alpha: 0.5)
+                                    : AppTheme.borderColor,
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                            ),
+                          );
+                  },
+                ),
+              ),
+              const SizedBox(width: 6),
+              SizedBox(
+                height: 30,
+                child: Builder(
+                  builder: (context) {
+                    final isTestEnabled = controller.isConnected;
+                    return isNarrow
+                        ? Tooltip(
+                            message: 'Device Test',
+                            child: OutlinedButton(
+                              onPressed: isTestEnabled
+                                  ? () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => DeviceTestDialog(
+                                            serialService: controller.service,
+                                            isFD: controller.isCanMode
+                                                ? (controller.canConfig.canType ==
+                                                    CanType.canFd)
+                                                : true,
+                                            channel: controller.isCanMode
+                                                ? controller.canConfig.channel.value
+                                                : 0,
+                                          ),
+                                        ),
+                                      )
+                                  : null,
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppTheme.successColor,
+                                side: BorderSide(
+                                  color: isTestEnabled
+                                      ? AppTheme.successColor.withValues(alpha: 0.5)
+                                      : AppTheme.borderColor,
+                                ),
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(30, 30),
+                              ),
+                              child: const Icon(Icons.assignment_turned_in, size: 14),
+                            ),
+                          )
+                        : OutlinedButton.icon(
+                            onPressed: isTestEnabled
+                                  ? () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => DeviceTestDialog(
+                                            serialService: controller.service,
+                                            isFD: controller.isCanMode
+                                                ? (controller.canConfig.canType ==
+                                                    CanType.canFd)
+                                                : true,
+                                            channel: controller.isCanMode
+                                                ? controller.canConfig.channel.value
+                                                : 0,
+                                          ),
+                                        ),
+                                      )
+                                  : null,
+                              icon: const Icon(Icons.assignment_turned_in, size: 14),
+                              label: Text('Test', style: GoogleFonts.inter(fontSize: 11)),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppTheme.successColor,
+                                side: BorderSide(
+                                  color: isTestEnabled
+                                      ? AppTheme.successColor.withValues(alpha: 0.5)
+                                      : AppTheme.borderColor,
+                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 10),
+                              ),
+                            );
+                  },
+                ),
+              ),
+              const SizedBox(width: 6),
+              SizedBox(
+                height: 30,
+                child: isNarrow
+                    ? Tooltip(
+                        message: 'Reports',
+                        child: OutlinedButton(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const ReportsScreen(),
+                              ),
+                            );
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.accentCyan,
+                            side: const BorderSide(color: AppTheme.borderColor),
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(30, 30),
+                          ),
+                          child: const Icon(Icons.print, size: 14),
+                        ),
+                      )
+                    : OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const ReportsScreen(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.print, size: 14),
+                        label: Text('Reports', style: GoogleFonts.inter(fontSize: 11)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.accentCyan,
+                          side: const BorderSide(color: AppTheme.borderColor),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                        ),
+                      ),
+              ),
+              const SizedBox(width: 12),
+              if (!isNarrow) ...[
+                Expanded(
+                  child: Text(
+                    controller.statusMessage,
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color: AppTheme.textMuted,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ] else
+                const Spacer(),
+              _metricChip('TX', controller.totalBytesSent, AppTheme.sentColor),
+              const SizedBox(width: 4),
+              _metricChip(
+                'RX',
+                controller.totalBytesReceived,
+                AppTheme.receivedColor,
+              ),
+              const SizedBox(width: 8),
+              // About button (#19)
+              SizedBox(
+                height: 24,
+                width: 24,
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  iconSize: 14,
+                  tooltip: 'About',
+                  icon: const Icon(Icons.info_outline, color: AppTheme.textMuted),
+                  onPressed: () => _showAboutDialog(context),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          _metricChip('TX', controller.totalBytesSent, AppTheme.sentColor),
-          const SizedBox(width: 4),
-          _metricChip(
-            'RX',
-            controller.totalBytesReceived,
-            AppTheme.receivedColor,
-          ),
-          const SizedBox(width: 8),
-          // About button (#19)
-          SizedBox(
-            height: 24,
-            width: 24,
-            child: IconButton(
-              padding: EdgeInsets.zero,
-              iconSize: 14,
-              tooltip: 'About',
-              icon: const Icon(Icons.info_outline, color: AppTheme.textMuted),
-              onPressed: () => _showAboutDialog(context),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -593,99 +937,13 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
               itemBuilder: (context, index) {
                 final row = rows[index];
                 final isSelected = index == selectedIndex;
-                return Container(
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? AppTheme.selectionBlue
-                        : index.isEven
-                        ? Colors.white
-                        : AppTheme.panelFill,
-                    border: Border(
-                      bottom: const BorderSide(color: AppTheme.borderLight),
-                      left: isSelected
-                          ? const BorderSide(
-                              color: AppTheme.primaryColor,
-                              width: 2,
-                            )
-                          : BorderSide.none,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: 60,
-                        child: Center(
-                          child: _DocklightSendButton(
-                            enabled:
-                                controller.isConnected &&
-                                row.sequence.trim().isNotEmpty,
-                            onPressed: activeTab == null
-                                ? null
-                                : () {
-                                    controller.selectSendSequence(
-                                      controller.activeTabIndex,
-                                      index,
-                                    );
-                                    controller.sendSavedSequence(
-                                      controller.activeTabIndex,
-                                      index,
-                                    );
-                                  },
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: InkWell(
-                          onTap: activeTab == null
-                              ? null
-                              : () async {
-                                  controller.selectSendSequence(
-                                    controller.activeTabIndex,
-                                    index,
-                                  );
-                                  await _showEditSendSequenceDialog(
-                                    context,
-                                    controller,
-                                    controller.activeTabIndex,
-                                    index,
-                                  );
-                                },
-                          child: Padding(
-                            padding: const EdgeInsets.only(right: 10),
-                            child: Row(
-                              children: [
-                                SizedBox(
-                                  width: 100,
-                                  child: Text(
-                                    row.name,
-                                    style: GoogleFonts.inter(
-                                      fontSize: 11,
-                                      color: AppTheme.textPrimary,
-                                    ),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 10,
-                                    ),
-                                    child: Text(
-                                      row.sequencePreview,
-                                      style: GoogleFonts.jetBrainsMono(
-                                        fontSize: 11,
-                                        color: AppTheme.primaryColor,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                return _SequenceEditableRow(
+                  sequence: row,
+                  tabIndex: controller.activeTabIndex,
+                  index: index,
+                  controller: controller,
+                  isSelected: isSelected,
+                  isEven: index.isEven,
                 );
               },
             ),
@@ -708,13 +966,16 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
       height: 30,
       child: DropdownButtonFormField<T>(
         initialValue: value,
-        icon: const Icon(Icons.keyboard_arrow_down, size: 14, color: AppTheme.textMuted),
+        isDense: true,
+        isExpanded: true,
+        icon: const Icon(Icons.keyboard_arrow_down, size: 12, color: AppTheme.textMuted),
         style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textPrimary),
         dropdownColor: AppTheme.bgElevated,
         decoration: InputDecoration(
           hintText: hint,
+          isDense: true,
           contentPadding: const EdgeInsets.symmetric(
-            horizontal: 10,
+            horizontal: 6,
             vertical: 6,
           ),
           filled: true,
@@ -724,7 +985,10 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
             .map(
               (item) => DropdownMenuItem<T>(
                 value: item,
-                child: Text(labelBuilder?.call(item) ?? item.toString()),
+                child: Text(
+                  labelBuilder?.call(item) ?? item.toString(),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             )
             .toList(),
@@ -1282,7 +1546,24 @@ Future<bool?> _showCanConfigDialog(
   BuildContext context,
   PortController controller,
 ) async {
+  const List<int> standardBaudRates = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
+  const List<int> standardDataBits = [5, 6, 7, 8];
+  const List<int> standardStopBits = [1, 2];
+  const Map<int, String> parityOptions = {
+    0: 'None',
+    1: 'Odd',
+    2: 'Even',
+    3: 'Mark',
+    4: 'Space',
+  };
+  const Map<int, String> flowControlOptions = {
+    0: 'None',
+    1: 'RTS/CTS',
+    2: 'XON/XOFF',
+  };
+
   // Make local copies for editing
+  var isCanMode = controller.isCanMode;
   var channel = controller.canConfig.channel;
   var nominalBaudRate = controller.canConfig.nominalBaudRate;
   var canType = controller.canConfig.canType;
@@ -1290,6 +1571,12 @@ Future<bool?> _showCanConfigDialog(
   var fdDataBaud = controller.canConfig.fdDataBaud;
   var brsEnabled = controller.canConfig.brsEnabled;
   var nonIso = controller.canConfig.nonIso;
+
+  var baudRate = controller.config.baudRate;
+  var dataBits = controller.config.dataBits;
+  var stopBits = controller.config.stopBits;
+  var parity = controller.config.parity;
+  var flowControl = controller.config.flowControl;
 
   return await showDialog<bool>(
     context: context,
@@ -1339,7 +1626,7 @@ Future<bool?> _showCanConfigDialog(
                               ),
                             ),
                             Text(
-                              'CAN Bus Configuration',
+                              isCanMode ? 'CAN Bus Configuration' : 'Raw Serial (UART) Configuration',
                               style: GoogleFonts.inter(
                                 fontSize: 11,
                                 color: AppTheme.textMuted,
@@ -1357,6 +1644,46 @@ Future<bool?> _showCanConfigDialog(
                     const SizedBox(height: 16),
                     const Divider(height: 1),
 
+                    // ── Connection Mode Selector ──
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => setState(() => isCanMode = true),
+                            borderRadius: BorderRadius.circular(4),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: isCanMode ? AppTheme.primaryColor.withValues(alpha: 0.1) : Colors.transparent,
+                                border: Border.all(color: isCanMode ? AppTheme.primaryColor : AppTheme.borderColor),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text('CAN Bus Mode', style: GoogleFonts.inter(fontWeight: isCanMode ? FontWeight.w600 : FontWeight.w400)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => setState(() => isCanMode = false),
+                            borderRadius: BorderRadius.circular(4),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: !isCanMode ? AppTheme.primaryColor.withValues(alpha: 0.1) : Colors.transparent,
+                                border: Border.all(color: !isCanMode ? AppTheme.primaryColor : AppTheme.borderColor),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text('Raw Serial Mode', style: GoogleFonts.inter(fontWeight: !isCanMode ? FontWeight.w600 : FontWeight.w400)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
                     // ── Scrollable body ──
                     Expanded(
                       child: SingleChildScrollView(
@@ -1364,176 +1691,240 @@ Future<bool?> _showCanConfigDialog(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // ── Channel ──
-                            _configSectionTitle('CHANNEL', 'Byte 2'),
-                            const SizedBox(height: 8),
-                            _configDropdown<CanChannel>(
-                              value: channel,
-                              items: CanChannel.values,
-                              labelBuilder: (v) => v.label,
-                              onChanged: (v) {
-                                if (v != null) setState(() => channel = v);
-                              },
-                            ),
-                            const SizedBox(height: 16),
+                            if (isCanMode) ...[
+                              // ── Channel ──
+                              _configSectionTitle('CHANNEL', 'Byte 2'),
+                              const SizedBox(height: 8),
+                              _configDropdown<CanChannel>(
+                                value: channel,
+                                items: CanChannel.values,
+                                labelBuilder: (v) => v.label,
+                                onChanged: (v) {
+                                  if (v != null) setState(() => channel = v);
+                                },
+                              ),
+                              const SizedBox(height: 16),
 
-                            // ── Nominal Baud Rate ──
-                            _configSectionTitle('NOMINAL BAUD RATE', 'Byte 3'),
-                            const SizedBox(height: 8),
-                            _configDropdown<CanNominalBaudRate>(
-                              value: nominalBaudRate,
-                              items: CanNominalBaudRate.values,
-                              labelBuilder: (v) => v.label,
-                              onChanged: (v) {
-                                if (v != null) setState(() => nominalBaudRate = v);
-                              },
-                            ),
-                            const SizedBox(height: 16),
+                              // ── Nominal Baud Rate ──
+                              _configSectionTitle('NOMINAL BAUD RATE', 'Byte 3'),
+                              const SizedBox(height: 8),
+                              _configDropdown<CanNominalBaudRate>(
+                                value: nominalBaudRate,
+                                items: CanNominalBaudRate.values,
+                                labelBuilder: (v) => v.label,
+                                onChanged: (v) {
+                                  if (v != null) setState(() => nominalBaudRate = v);
+                                },
+                              ),
+                              const SizedBox(height: 16),
 
-                            // ── CAN Type ──
-                            _configSectionTitle('CAN TYPE', 'Byte 5 – Bit 0'),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: CanType.values.map((type) {
-                                final isSelected = canType == type;
-                                return Expanded(
-                                  child: Padding(
-                                    padding: EdgeInsets.only(
-                                      right: type != CanType.values.last ? 8 : 0,
-                                    ),
-                                    child: InkWell(
-                                      onTap: () => setState(() {
-                                        canType = type;
-                                      }),
-                                      borderRadius: BorderRadius.circular(4),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 10,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: isSelected
-                                            ? AppTheme.selectionBlueSoft
-                                            : AppTheme.bgInput,
-                                          border: Border.all(
-                                            color: isSelected
-                                                ? AppTheme.selectionBlue
-                                                : AppTheme.borderColor,
-                                            width: isSelected ? 1.5 : 1,
+                              // ── CAN Type ──
+                              _configSectionTitle('CAN TYPE', 'Byte 5 – Bit 0'),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: CanType.values.map((type) {
+                                  final isSelected = canType == type;
+                                  return Expanded(
+                                    child: Padding(
+                                      padding: EdgeInsets.only(
+                                        right: type != CanType.values.last ? 8 : 0,
+                                      ),
+                                      child: InkWell(
+                                        onTap: () => setState(() {
+                                          canType = type;
+                                        }),
+                                        borderRadius: BorderRadius.circular(4),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 10,
                                           ),
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: Column(
-                                          children: [
-                                            Icon(
-                                              type == CanType.classicCan
-                                                  ? Icons.cable
-                                                  : Icons.speed,
+                                          decoration: BoxDecoration(
+                                            color: isSelected
+                                              ? AppTheme.selectionBlueSoft
+                                              : AppTheme.bgInput,
+                                            border: Border.all(
                                               color: isSelected
-                                                  ? AppTheme.primaryColor
-                                                  : AppTheme.textMuted,
-                                              size: 22,
+                                                  ? AppTheme.selectionBlue
+                                                  : AppTheme.borderColor,
+                                              width: isSelected ? 1.5 : 1,
                                             ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              type.label,
-                                              style: GoogleFonts.inter(
-                                                fontSize: 12,
-                                                fontWeight: isSelected
-                                                    ? FontWeight.w700
-                                                    : FontWeight.w500,
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Column(
+                                            children: [
+                                              Icon(
+                                                type == CanType.classicCan
+                                                    ? Icons.cable
+                                                    : Icons.speed,
                                                 color: isSelected
                                                     ? AppTheme.primaryColor
-                                                    : AppTheme.textPrimary,
+                                                    : AppTheme.textMuted,
+                                                size: 22,
                                               ),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              type == CanType.classicCan
-                                                  ? 'Standard CAN 2.0A/2.0B'
-                                                  : 'Flexible Data Rate',
-                                              style: GoogleFonts.inter(
-                                                fontSize: 9,
-                                                color: AppTheme.textMuted,
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                type.label,
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 12,
+                                                  fontWeight: isSelected
+                                                      ? FontWeight.w700
+                                                      : FontWeight.w500,
+                                                  color: isSelected
+                                                      ? AppTheme.primaryColor
+                                                      : AppTheme.textPrimary,
+                                                ),
                                               ),
-                                            ),
-                                          ],
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                type == CanType.classicCan
+                                                    ? 'Standard CAN 2.0A/2.0B'
+                                                    : 'Flexible Data Rate',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 9,
+                                                  color: AppTheme.textMuted,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                            const SizedBox(height: 16),
+                                  );
+                                }).toList(),
+                              ),
+                              const SizedBox(height: 16),
 
-                            // ── Mode / Data Baud (dynamic) ──
-                            _configSectionTitle(
-                              canType == CanType.classicCan ? 'MODE' : 'DATA BAUD RATE',
-                              'Byte 4',
-                            ),
-                            const SizedBox(height: 8),
-                            if (canType == CanType.classicCan)
-                              _configDropdown<ClassicCanMode>(
-                                value: classicMode,
-                                items: ClassicCanMode.values,
-                                labelBuilder: (v) => v.label,
+                              // ── Mode / Data Baud (dynamic) ──
+                              _configSectionTitle(
+                                canType == CanType.classicCan ? 'MODE' : 'DATA BAUD RATE',
+                                'Byte 4',
+                              ),
+                              const SizedBox(height: 8),
+                              if (canType == CanType.classicCan)
+                                _configDropdown<ClassicCanMode>(
+                                  value: classicMode,
+                                  items: ClassicCanMode.values,
+                                  labelBuilder: (v) => v.label,
+                                  onChanged: (v) {
+                                    if (v != null) setState(() => classicMode = v);
+                                  },
+                                )
+                              else
+                                _configDropdown<CanFdDataBaud>(
+                                  value: fdDataBaud,
+                                  items: CanFdDataBaud.values,
+                                  labelBuilder: (v) => v.label,
+                                  onChanged: (v) {
+                                    if (v != null) setState(() => fdDataBaud = v);
+                                  },
+                                ),
+                              const SizedBox(height: 16),
+
+                              // ── Flags ──
+                              _configSectionTitle('FLAGS', 'Byte 5 – Bits 1..2'),
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.bgInput,
+                                  border: Border.all(color: AppTheme.borderColor),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Column(
+                                  children: [
+                                    _configCheckbox(
+                                      label: 'BRS (Bit Rate Switching)',
+                                      subtitle: canType == CanType.canFd
+                                          ? 'Switch to higher data rate for payload'
+                                          : 'Only applicable in CAN FD mode',
+                                      value: brsEnabled,
+                                      enabled: canType == CanType.canFd,
+                                      onChanged: (v) {
+                                        setState(() => brsEnabled = v ?? false);
+                                      },
+                                    ),
+                                    const Divider(height: 16),
+                                    _configCheckbox(
+                                      label: 'Non-ISO FD Format',
+                                      subtitle: canType == CanType.canFd
+                                          ? 'Use Non-ISO CAN FD (Bosch original spec)'
+                                          : 'Only applicable in CAN FD mode',
+                                      value: nonIso,
+                                      enabled: canType == CanType.canFd,
+                                      onChanged: (v) {
+                                        setState(() => nonIso = v ?? false);
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ] else ...[
+                              // ── Raw Serial Baud Rate ──
+                              _configSectionTitle('BAUD RATE', 'bps'),
+                              const SizedBox(height: 8),
+                              _configDropdown<int>(
+                                value: baudRate,
+                                items: standardBaudRates,
+                                labelBuilder: (v) => '$v bps',
                                 onChanged: (v) {
-                                  if (v != null) setState(() => classicMode = v);
+                                  if (v != null) setState(() => baudRate = v);
                                 },
-                              )
-                            else
-                              _configDropdown<CanFdDataBaud>(
-                                value: fdDataBaud,
-                                items: CanFdDataBaud.values,
-                                labelBuilder: (v) => v.label,
+                              ),
+                              const SizedBox(height: 16),
+
+                              // ── Data Bits ──
+                              _configSectionTitle('DATA BITS', 'bits'),
+                              const SizedBox(height: 8),
+                              _configDropdown<int>(
+                                value: dataBits,
+                                items: standardDataBits,
+                                labelBuilder: (v) => '$v bits',
                                 onChanged: (v) {
-                                  if (v != null) setState(() => fdDataBaud = v);
+                                  if (v != null) setState(() => dataBits = v);
                                 },
                               ),
-                            const SizedBox(height: 16),
+                              const SizedBox(height: 16),
 
-                            // ── Flags ──
-                            _configSectionTitle('FLAGS', 'Byte 5 – Bits 1..2'),
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: AppTheme.bgInput,
-                                border: Border.all(color: AppTheme.borderColor),
-                                borderRadius: BorderRadius.circular(4),
+                              // ── Stop Bits ──
+                              _configSectionTitle('STOP BITS', 'stop bits'),
+                              const SizedBox(height: 8),
+                              _configDropdown<int>(
+                                value: stopBits,
+                                items: standardStopBits,
+                                labelBuilder: (v) => '$v stop bits',
+                                onChanged: (v) {
+                                  if (v != null) setState(() => stopBits = v);
+                                },
                               ),
-                              child: Column(
-                                children: [
-                                  _configCheckbox(
-                                    label: 'BRS (Bit Rate Switching)',
-                                    subtitle: canType == CanType.canFd
-                                        ? 'Switch to higher data rate for payload'
-                                        : 'Only applicable in CAN FD mode',
-                                    value: brsEnabled,
-                                    enabled: canType == CanType.canFd,
-                                    onChanged: (v) {
-                                      setState(() => brsEnabled = v ?? false);
-                                    },
-                                  ),
-                                  const Divider(height: 16),
-                                  _configCheckbox(
-                                    label: 'Non-ISO FD Format',
-                                    subtitle: canType == CanType.canFd
-                                        ? 'Use Non-ISO CAN FD (Bosch original spec)'
-                                        : 'Only applicable in CAN FD mode',
-                                    value: nonIso,
-                                    enabled: canType == CanType.canFd,
-                                    onChanged: (v) {
-                                      setState(() => nonIso = v ?? false);
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 16),
+                              const SizedBox(height: 16),
 
-                            // ── Connect Frame Preview (Removed) ──
+                              // ── Parity ──
+                              _configSectionTitle('PARITY', 'parity'),
+                              const SizedBox(height: 8),
+                              _configDropdown<int>(
+                                value: parity,
+                                items: parityOptions.keys.toList(),
+                                labelBuilder: (v) => parityOptions[v] ?? 'None',
+                                onChanged: (v) {
+                                  if (v != null) setState(() => parity = v);
+                                },
+                              ),
+                              const SizedBox(height: 16),
+
+                              // ── Flow Control ──
+                              _configSectionTitle('FLOW CONTROL', 'flow control'),
+                              const SizedBox(height: 8),
+                              _configDropdown<int>(
+                                value: flowControl,
+                                items: flowControlOptions.keys.toList(),
+                                labelBuilder: (v) => flowControlOptions[v] ?? 'None',
+                                onChanged: (v) {
+                                  if (v != null) setState(() => flowControl = v);
+                                },
+                              ),
+                            ],
+                            const SizedBox(height: 16),
                           ],
                         ),
                       ),
@@ -1556,15 +1947,26 @@ Future<bool?> _showCanConfigDialog(
                           width: 120,
                           child: ElevatedButton(
                             onPressed: () {
-                              controller.updateCanConfig(
-                                channel: channel,
-                                nominalBaudRate: nominalBaudRate,
-                                canType: canType,
-                                classicMode: classicMode,
-                                fdDataBaud: fdDataBaud,
-                                brsEnabled: brsEnabled,
-                                nonIso: nonIso,
-                              );
+                              controller.setCanMode(isCanMode);
+                              if (isCanMode) {
+                                controller.updateCanConfig(
+                                  channel: channel,
+                                  nominalBaudRate: nominalBaudRate,
+                                  canType: canType,
+                                  classicMode: classicMode,
+                                  fdDataBaud: fdDataBaud,
+                                  brsEnabled: brsEnabled,
+                                  nonIso: nonIso,
+                                );
+                              } else {
+                                controller.updateConfig(
+                                  baudRate: baudRate,
+                                  dataBits: dataBits,
+                                  stopBits: stopBits,
+                                  parity: parity,
+                                  flowControl: flowControl,
+                                );
+                              }
                               Navigator.of(context).pop(true);
                             },
                             child: const Text('Connect'),
@@ -1748,7 +2150,9 @@ Future<void> _showEditSendSequenceDialog(
   void normalizeEditorInput(StateSetter setState, String value) {
     String normalized = _normalizeSequenceEditorInput(value, format);
 
-    final int maxBytes = controller.canConfig.canType == CanType.classicCan ? 8 : 64;
+    final int maxBytes = !controller.isCanMode
+        ? 4096
+        : (controller.canConfig.canType == CanType.classicCan ? 8 : 64);
     try {
       final bytes = parseSequenceInput(normalized, format);
       if (bytes.length > maxBytes) {
@@ -1937,28 +2341,30 @@ Future<void> _showEditSendSequenceDialog(
                                   ),
                                 ),
                                 const Spacer(),
-                                Builder(
-                                  builder: (context) {
-                                    final int maxBytes = controller.canConfig.canType == CanType.classicCan ? 8 : 64;
-                                    int currentBytes = 0;
-                                    try {
-                                      currentBytes = parseSequenceInput(sequenceController.text, format).length;
-                                    } catch (_) {
-                                      final clean = sequenceController.text.replaceAll(RegExp(r'[^0-9a-zA-Z]'), '');
-                                      if (format == DisplayFormat.hex) {
-                                        currentBytes = clean.length ~/ 2;
-                                      } else if (format == DisplayFormat.binary) {
-                                        currentBytes = clean.length ~/ 8;
-                                      } else {
-                                        currentBytes = clean.length;
+                                 Builder(
+                                    builder: (context) {
+                                      final int maxBytes = !controller.isCanMode
+                                          ? 4096
+                                          : (controller.canConfig.canType == CanType.classicCan ? 8 : 64);
+                                      int currentBytes = 0;
+                                      try {
+                                        currentBytes = parseSequenceInput(sequenceController.text, format).length;
+                                      } catch (_) {
+                                        final clean = sequenceController.text.replaceAll(RegExp(r'[^0-9a-zA-Z]'), '');
+                                        if (format == DisplayFormat.hex) {
+                                          currentBytes = clean.length ~/ 2;
+                                        } else if (format == DisplayFormat.binary) {
+                                          currentBytes = clean.length ~/ 8;
+                                        } else {
+                                          currentBytes = clean.length;
+                                        }
                                       }
-                                    }
-                                    return Text(
-                                      'Bytes: $currentBytes / $maxBytes',
-                                      style: GoogleFonts.inter(
-                                        fontSize: 12,
-                                        color: currentBytes > maxBytes ? AppTheme.errorColor : AppTheme.textSecondary,
-                                      ),
+                                      return Text(
+                                        'Bytes: $currentBytes / $maxBytes',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: currentBytes > maxBytes ? AppTheme.errorColor : AppTheme.textSecondary,
+                                        ),
                                     );
                                   }
                                 ),
@@ -1985,311 +2391,390 @@ Future<void> _showEditSendSequenceDialog(
                               ),
                             ),
                             const SizedBox(height: 14),
-                            Text(
-                              '3 - CAN Message Options',
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                color: AppTheme.textPrimary,
+                            if (!controller.isCanMode) ...[
+                              Text(
+                                '3 - Serial Transmission Options',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  color: AppTheme.textPrimary,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: AppTheme.bgInput,
-                                border: Border.all(color: AppTheme.borderColor),
-                              ),
-                              child: Column(
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Format',
-                                              style: GoogleFonts.inter(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                                color: AppTheme.textPrimary,
-                                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.bgInput,
+                                  border: Border.all(color: AppTheme.borderColor),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Number to send',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: AppTheme.textPrimary,
                                             ),
-                                            const SizedBox(height: 6),
-                                            _configDropdown<CanFrameFormat>(
-                                              value: canFrameFormat,
-                                              items: CanFrameFormat.values,
-                                              labelBuilder:
-                                                  _canFrameFormatLabel,
-                                              onChanged: (value) {
-                                                if (value != null) {
-                                                  setState(() {
-                                                    canFrameFormat = value;
-                                                    String clean = canIdController.text.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '').toUpperCase();
-                                                    if (clean.isNotEmpty) {
-                                                      int? intValue = int.tryParse(clean, radix: 16);
-                                                      if (intValue != null) {
-                                                        if (canFrameFormat == CanFrameFormat.standard && intValue > 0x7FF) {
-                                                          clean = '7FF';
-                                                        } else if (canFrameFormat == CanFrameFormat.extended && intValue > 0x1FFFFFFF) {
-                                                          clean = '1FFFFFFF';
+                                          ),
+                                          const SizedBox(height: 6),
+                                          TextField(
+                                            controller: repeatCountController,
+                                            keyboardType: TextInputType.number,
+                                            style: GoogleFonts.jetBrainsMono(
+                                              fontSize: 13,
+                                            ),
+                                            decoration: const InputDecoration(
+                                              hintText: '1',
+                                              filled: true,
+                                              fillColor: AppTheme.bgInput,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Send cycle (ms)',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: AppTheme.textPrimary,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          TextField(
+                                            controller: sendCycleController,
+                                            keyboardType: TextInputType.number,
+                                            style: GoogleFonts.jetBrainsMono(
+                                              fontSize: 13,
+                                            ),
+                                            decoration: const InputDecoration(
+                                              hintText: '0',
+                                              filled: true,
+                                              fillColor: AppTheme.bgInput,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ] else ...[
+                              Text(
+                                '3 - CAN Message Options',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  color: AppTheme.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.bgInput,
+                                  border: Border.all(color: AppTheme.borderColor),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Format',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppTheme.textPrimary,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              _configDropdown<CanFrameFormat>(
+                                                value: canFrameFormat,
+                                                items: CanFrameFormat.values,
+                                                labelBuilder:
+                                                    _canFrameFormatLabel,
+                                                onChanged: (value) {
+                                                  if (value != null) {
+                                                    setState(() {
+                                                      canFrameFormat = value;
+                                                      String clean = canIdController.text.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '').toUpperCase();
+                                                      if (clean.isNotEmpty) {
+                                                        int? intValue = int.tryParse(clean, radix: 16);
+                                                        if (intValue != null) {
+                                                          if (canFrameFormat == CanFrameFormat.standard && intValue > 0x7FF) {
+                                                            clean = '7FF';
+                                                          } else if (canFrameFormat == CanFrameFormat.extended && intValue > 0x1FFFFFFF) {
+                                                            clean = '1FFFFFFF';
+                                                          }
                                                         }
                                                       }
-                                                    }
-                                                    canIdController.text = _groupInput(clean, 2);
-                                                  });
-                                                }
-                                              },
-                                            ),
-                                          ],
+                                                      canIdController.text = _groupInput(clean, 2);
+                                                    });
+                                                  }
+                                                },
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Type',
-                                              style: GoogleFonts.inter(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                                color: AppTheme.textPrimary,
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Type',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppTheme.textPrimary,
+                                                ),
                                               ),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            _configDropdown<CanFrameType>(
-                                              value: canFrameType,
-                                              items: CanFrameType.values,
-                                              labelBuilder: _canFrameTypeLabel,
-                                              onChanged: (value) {
-                                                if (value != null) {
-                                                  setState(
-                                                    () => canFrameType = value,
-                                                  );
-                                                }
-                                              },
-                                            ),
-                                          ],
+                                              const SizedBox(height: 6),
+                                              _configDropdown<CanFrameType>(
+                                                value: canFrameType,
+                                                items: CanFrameType.values,
+                                                labelBuilder: _canFrameTypeLabel,
+                                                onChanged: (value) {
+                                                  if (value != null) {
+                                                    setState(
+                                                      () => canFrameType = value,
+                                                    );
+                                                  }
+                                                },
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        flex: 2,
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'CAN ID (HEX)',
-                                              style: GoogleFonts.inter(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                                color: AppTheme.textPrimary,
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          flex: 2,
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'CAN ID (HEX)',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppTheme.textPrimary,
+                                                ),
                                               ),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            TextField(
-                                              controller: canIdController,
-                                              style: GoogleFonts.jetBrainsMono(
-                                                fontSize: 13,
-                                              ),
-                                              decoration: const InputDecoration(
-                                                hintText: '00 00 00 01',
-                                                filled: true,
-                                                fillColor: AppTheme.bgInput,
-                                              ),
-                                              onChanged: (value) {
-                                                String clean = value.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '').toUpperCase();
-                                                if (clean.isNotEmpty) {
-                                                  int? intValue = int.tryParse(clean, radix: 16);
-                                                  if (intValue != null) {
-                                                    if (canFrameFormat == CanFrameFormat.standard && intValue > 0x7FF) {
-                                                      clean = '7FF';
-                                                    } else if (canFrameFormat == CanFrameFormat.extended && intValue > 0x1FFFFFFF) {
-                                                      clean = '1FFFFFFF';
+                                              const SizedBox(height: 6),
+                                              TextField(
+                                                controller: canIdController,
+                                                style: GoogleFonts.jetBrainsMono(
+                                                  fontSize: 13,
+                                                ),
+                                                decoration: const InputDecoration(
+                                                  hintText: '00 00 00 01',
+                                                  filled: true,
+                                                  fillColor: AppTheme.bgInput,
+                                                ),
+                                                onChanged: (value) {
+                                                  String clean = value.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '').toUpperCase();
+                                                  if (clean.isNotEmpty) {
+                                                    int? intValue = int.tryParse(clean, radix: 16);
+                                                    if (intValue != null) {
+                                                      if (canFrameFormat == CanFrameFormat.standard && intValue > 0x7FF) {
+                                                        clean = '7FF';
+                                                      } else if (canFrameFormat == CanFrameFormat.extended && intValue > 0x1FFFFFFF) {
+                                                        clean = '1FFFFFFF';
+                                                      }
                                                     }
                                                   }
-                                                }
-                                                final normalized = _groupInput(clean, 2);
-                                                if (normalized != value) {
-                                                  canIdController.value =
-                                                      TextEditingValue(
-                                                        text: normalized,
-                                                        selection: TextSelection.collapsed(
-                                                          offset: normalized.length,
-                                                        ),
-                                                      );
-                                                }
-                                              },
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Channel',
-                                              style: GoogleFonts.inter(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                                color: AppTheme.textPrimary,
+                                                  final normalized = _groupInput(clean, 2);
+                                                  if (normalized != value) {
+                                                    canIdController.value =
+                                                        TextEditingValue(
+                                                          text: normalized,
+                                                          selection: TextSelection.collapsed(
+                                                            offset: normalized.length,
+                                                          ),
+                                                        );
+                                                  }
+                                                },
                                               ),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            _configDropdown<int>(
-                                              value: channel,
-                                              items: const [1, 2],
-                                              labelBuilder: (value) => '$value',
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Channel',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppTheme.textPrimary,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              _configDropdown<int>(
+                                                value: channel,
+                                                items: const [1, 2],
+                                                labelBuilder: (value) => '$value',
+                                                onChanged: (value) {
+                                                  if (value != null) {
+                                                    setState(
+                                                      () => channel = value,
+                                                    );
+                                                  }
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Number to send',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppTheme.textPrimary,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              TextField(
+                                                controller: repeatCountController,
+                                                keyboardType:
+                                                    TextInputType.number,
+                                                style: GoogleFonts.jetBrainsMono(
+                                                  fontSize: 13,
+                                                ),
+                                                decoration: const InputDecoration(
+                                                  hintText: '1',
+                                                  filled: true,
+                                                  fillColor: AppTheme.bgInput,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Send cycle (ms)',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppTheme.textPrimary,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              TextField(
+                                                controller: sendCycleController,
+                                                keyboardType:
+                                                    TextInputType.number,
+                                                style: GoogleFonts.jetBrainsMono(
+                                                  fontSize: 13,
+                                                ),
+                                                decoration: const InputDecoration(
+                                                  hintText: '0',
+                                                  filled: true,
+                                                  fillColor: AppTheme.bgInput,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Material(
+                                            color: Colors.transparent,
+                                            child: CheckboxListTile(
+                                              value: idIncrementEnabled,
                                               onChanged: (value) {
-                                                if (value != null) {
-                                                  setState(
-                                                    () => channel = value,
-                                                  );
-                                                }
+                                                setState(
+                                                  () =>
+                                                      idIncrementEnabled =
+                                                          value ?? false,
+                                                );
                                               },
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Number to send',
-                                              style: GoogleFonts.inter(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                                color: AppTheme.textPrimary,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            TextField(
-                                              controller: repeatCountController,
-                                              keyboardType:
-                                                  TextInputType.number,
-                                              style: GoogleFonts.jetBrainsMono(
-                                                fontSize: 13,
-                                              ),
-                                              decoration: const InputDecoration(
-                                                hintText: '1',
-                                                filled: true,
-                                                fillColor: AppTheme.bgInput,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Send cycle (ms)',
-                                              style: GoogleFonts.inter(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                                color: AppTheme.textPrimary,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            TextField(
-                                              controller: sendCycleController,
-                                              keyboardType:
-                                                  TextInputType.number,
-                                              style: GoogleFonts.jetBrainsMono(
-                                                fontSize: 13,
-                                              ),
-                                              decoration: const InputDecoration(
-                                                hintText: '0',
-                                                filled: true,
-                                                fillColor: AppTheme.bgInput,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Material(
-                                          color: Colors.transparent,
-                                          child: CheckboxListTile(
-                                            value: idIncrementEnabled,
-                                            onChanged: (value) {
-                                              setState(
-                                                () =>
-                                                    idIncrementEnabled =
-                                                        value ?? false,
-                                              );
-                                            },
-                                            contentPadding: EdgeInsets.zero,
-                                            dense: true,
-                                            controlAffinity:
-                                                ListTileControlAffinity.leading,
-                                            title: Text(
-                                              'ID Increment',
-                                              style: GoogleFonts.inter(
-                                                fontSize: 12,
+                                              contentPadding: EdgeInsets.zero,
+                                              dense: true,
+                                              controlAffinity:
+                                                  ListTileControlAffinity.leading,
+                                              title: Text(
+                                                'ID Increment',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 12,
+                                                ),
                                               ),
                                             ),
                                           ),
                                         ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Material(
-                                          color: Colors.transparent,
-                                          child: CheckboxListTile(
-                                            value: dataIncrementEnabled,
-                                            onChanged: (value) {
-                                              setState(
-                                                () =>
-                                                    dataIncrementEnabled =
-                                                        value ?? false,
-                                              );
-                                            },
-                                            contentPadding: EdgeInsets.zero,
-                                            dense: true,
-                                            controlAffinity:
-                                                ListTileControlAffinity.leading,
-                                            title: Text(
-                                              'Data Increment',
-                                              style: GoogleFonts.inter(
-                                                fontSize: 12,
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Material(
+                                            color: Colors.transparent,
+                                            child: CheckboxListTile(
+                                              value: dataIncrementEnabled,
+                                              onChanged: (value) {
+                                                setState(
+                                                  () =>
+                                                      dataIncrementEnabled =
+                                                          value ?? false,
+                                                );
+                                              },
+                                              contentPadding: EdgeInsets.zero,
+                                              dense: true,
+                                              controlAffinity:
+                                                  ListTileControlAffinity.leading,
+                                              title: Text(
+                                                'Data Increment',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 12,
+                                                ),
                                               ),
                                             ),
                                           ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
+                                      ],
+                                    ),
 
-                                ],
+                                  ],
+                                ),
                               ),
-                            ),
+                            ]
 
                           ],
                         ),
@@ -2423,4 +2908,237 @@ String _groupInput(String compact, int groupSize) {
     buffer.write(compact[index]);
   }
   return buffer.toString();
+}
+
+class _SequenceEditableRow extends StatefulWidget {
+  final SendSequence sequence;
+  final int tabIndex;
+  final int index;
+  final PortController controller;
+  final bool isSelected;
+  final bool isEven;
+
+  const _SequenceEditableRow({
+    required this.sequence,
+    required this.tabIndex,
+    required this.index,
+    required this.controller,
+    required this.isSelected,
+    required this.isEven,
+  });
+
+  @override
+  State<_SequenceEditableRow> createState() => _SequenceEditableRowState();
+}
+
+class _SequenceEditableRowState extends State<_SequenceEditableRow> {
+  late TextEditingController _nameController;
+  late TextEditingController _sequenceController;
+  final FocusNode _nameFocusNode = FocusNode();
+  final FocusNode _sequenceFocusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.sequence.name);
+    _sequenceController = TextEditingController(text: widget.sequence.sequence);
+    _nameFocusNode.addListener(_onFocusChange);
+    _sequenceFocusNode.addListener(_onFocusChange);
+  }
+
+  void _onFocusChange() {
+    if (!_nameFocusNode.hasFocus && !_sequenceFocusNode.hasFocus) {
+      widget.controller.updateSendSequence(
+        widget.tabIndex,
+        widget.index,
+        name: _nameController.text,
+        sequence: _sequenceController.text,
+      );
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _SequenceEditableRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sequence.name != widget.sequence.name && !_nameFocusNode.hasFocus) {
+      _nameController.text = widget.sequence.name;
+    }
+    if (oldWidget.sequence.sequence != widget.sequence.sequence && !_sequenceFocusNode.hasFocus) {
+      _sequenceController.text = widget.sequence.sequence;
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _sequenceController.dispose();
+    _nameFocusNode.removeListener(_onFocusChange);
+    _sequenceFocusNode.removeListener(_onFocusChange);
+    _nameFocusNode.dispose();
+    _sequenceFocusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.isSelected) {
+      return Container(
+        decoration: BoxDecoration(
+          color: widget.isEven ? Colors.white : AppTheme.panelFill,
+          border: const Border(
+            bottom: BorderSide(color: AppTheme.borderLight),
+          ),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 60,
+              child: Center(
+                child: _DocklightSendButton(
+                  enabled: widget.controller.isConnected && widget.sequence.sequence.trim().isNotEmpty,
+                  onPressed: () {
+                    widget.controller.selectSendSequence(widget.tabIndex, widget.index);
+                    widget.controller.sendSavedSequence(widget.tabIndex, widget.index);
+                  },
+                ),
+              ),
+            ),
+            Expanded(
+              child: InkWell(
+                onTap: () {
+                  widget.controller.selectSendSequence(widget.tabIndex, widget.index);
+                },
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 100,
+                        child: Text(
+                          widget.sequence.name,
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 10,
+                          ),
+                          child: Text(
+                            widget.sequence.sequencePreview,
+                            style: GoogleFonts.jetBrainsMono(
+                              fontSize: 11,
+                              color: AppTheme.primaryColor,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppTheme.selectionBlue,
+        border: Border(
+          bottom: BorderSide(color: AppTheme.borderLight),
+          left: BorderSide(color: AppTheme.primaryColor, width: 2),
+        ),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 60,
+            child: Center(
+              child: _DocklightSendButton(
+                enabled: widget.controller.isConnected && widget.sequence.sequence.trim().isNotEmpty,
+                onPressed: () {
+                  widget.controller.sendSavedSequence(widget.tabIndex, widget.index);
+                },
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 100,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: TextField(
+                controller: _nameController,
+                focusNode: _nameFocusNode,
+                autofocus: true,
+                style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textPrimary),
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  hintText: 'Name',
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(vertical: 8),
+                ),
+                onSubmitted: (val) {
+                  widget.controller.updateSendSequence(
+                    widget.tabIndex,
+                    widget.index,
+                    name: _nameController.text,
+                    sequence: _sequenceController.text,
+                  );
+                },
+              ),
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: TextField(
+                controller: _sequenceController,
+                focusNode: _sequenceFocusNode,
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11,
+                  color: AppTheme.primaryColor,
+                ),
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  hintText: 'Sequence',
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(vertical: 8),
+                ),
+                onSubmitted: (val) {
+                  widget.controller.updateSendSequence(
+                    widget.tabIndex,
+                    widget.index,
+                    name: _nameController.text,
+                    sequence: _sequenceController.text,
+                  );
+                },
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.edit_note_rounded, size: 16, color: AppTheme.textMuted),
+            onPressed: () {
+              _showEditSendSequenceDialog(
+                context,
+                widget.controller,
+                widget.tabIndex,
+                widget.index,
+              );
+            },
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            splashRadius: 16,
+            tooltip: 'Advanced Settings',
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+    );
+  }
 }

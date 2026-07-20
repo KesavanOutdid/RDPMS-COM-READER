@@ -137,16 +137,17 @@ class BulkFirmwareController extends ChangeNotifier {
           BoardType.acVoltage,
           BoardType.dcHighVoltage,
           BoardType.acCurrent,
+          BoardType.bh,
+          BoardType.ax,
         ];
-        final testBoardNos = [1, 1, 2, 3];
-        final testCanIds = [0x31, 0x32, 0x33, 0x34];
+        final testBoardNos = [1, 1, 2, 3, 30583, 1]; // 30583 is 0x7777
+        final testCanIds = [0x31, 0x32, 0x33, 0x34, 0x35, 0x36];
 
         for (int i = 0; i < testTypes.length; i++) {
           final bt = testTypes[i];
           final boardNo = testBoardNos[i];
           final canId = testCanIds[i];
-          final verStr = '1.0.0';
-
+          
           final char1Hex = bt.code.codeUnitAt(0).toRadixString(16).padLeft(2, '0').toUpperCase();
           final char2Hex = bt.code.codeUnitAt(1).toRadixString(16).padLeft(2, '0').toUpperCase();
           final boardNoMsbHex =
@@ -154,12 +155,20 @@ class BulkFirmwareController extends ChangeNotifier {
           final boardNoLsbHex =
               (boardNo & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
           final canIdHex = canId.toRadixString(16).padLeft(2, '0').toUpperCase();
-          final verHex = verStr.codeUnits
-              .map((c) => c.toRadixString(16).padLeft(2, '0').toUpperCase())
-              .join(' ');
 
-          final rawHex =
-              '$char1Hex $char2Hex $boardNoMsbHex $boardNoLsbHex $canIdHex $verHex';
+          String verStr;
+          String rawHex;
+          if (bt == BoardType.bh) {
+            verStr = '0.1.0';
+            rawHex = '$boardNoMsbHex $boardNoLsbHex $char1Hex $char2Hex 00 01';
+          } else {
+            verStr = '1.0.0';
+            final verHex = verStr.codeUnits
+                .map((c) => c.toRadixString(16).padLeft(2, '0').toUpperCase())
+                .join(' ');
+            rawHex = '$char1Hex $char2Hex $boardNoMsbHex $boardNoLsbHex $canIdHex $verHex';
+          }
+
           mocks.add(DiscoveredBoard(
             canId: canId,
             deviceId: boardNo,
@@ -171,9 +180,8 @@ class BulkFirmwareController extends ChangeNotifier {
       } else {
         for (int i = 0; i < count; i++) {
           final bt = selectedBoardType;
-          final boardNo = i + 1;
+          final boardNo = bt == BoardType.bh ? 30583 + i : i + 1;
           final canId = 0x31 + i;
-          final verStr = '1.0.0';
 
           final char1Hex = bt.code.codeUnitAt(0).toRadixString(16).padLeft(2, '0').toUpperCase();
           final char2Hex = bt.code.codeUnitAt(1).toRadixString(16).padLeft(2, '0').toUpperCase();
@@ -182,12 +190,21 @@ class BulkFirmwareController extends ChangeNotifier {
           final boardNoLsbHex =
               (boardNo & 0xFF).toRadixString(16).padLeft(2, '0').toUpperCase();
           final canIdHex = canId.toRadixString(16).padLeft(2, '0').toUpperCase();
-          final verHex = verStr.codeUnits
-              .map((c) => c.toRadixString(16).padLeft(2, '0').toUpperCase())
-              .join(' ');
 
-          final rawHex =
-              '$char1Hex $char2Hex $boardNoMsbHex $boardNoLsbHex $canIdHex $verHex';
+          String verStr;
+          String rawHex;
+          if (bt == BoardType.bh) {
+            verStr = '0.${i + 1}.0';
+            final serHex = (i + 1).toRadixString(16).padLeft(2, '0').toUpperCase();
+            rawHex = '$boardNoMsbHex $boardNoLsbHex $char1Hex $char2Hex 00 $serHex';
+          } else {
+            verStr = '1.0.0';
+            final verHex = verStr.codeUnits
+                .map((c) => c.toRadixString(16).padLeft(2, '0').toUpperCase())
+                .join(' ');
+            rawHex = '$char1Hex $char2Hex $boardNoMsbHex $boardNoLsbHex $canIdHex $verHex';
+          }
+
           mocks.add(DiscoveredBoard(
             canId: canId,
             deviceId: boardNo,
