@@ -628,20 +628,42 @@ class BulkFirmwareService {
       // Report ACK results back to the UI
       for (final ack in headerAcks) {
         final canIdHex = '0x${ack.canId.toRadixString(16).toUpperCase().padLeft(3, '0')}';
+        final errText = ack.errorDetail.isNotEmpty ? ack.errorDetail : 'Unexpected Header Response';
         yield BulkUploadProgress(
           status: BulkUploadStatus.waitingHeaderAck,
           totalFrames: file.frameCount,
           message: ack.success
-              ? 'Node #${ack.deviceId} (${ack.boardTypeCode}, CAN ID: $canIdHex) ACK \u2713 (RX: ${ack.rawHex})'
-              : 'Node #${ack.deviceId} (${ack.boardTypeCode}, CAN ID: $canIdHex) NACK \u2717: ${ack.errorDetail} (RX: ${ack.rawHex})',
+              ? 'Node #${ack.deviceId} (${ack.boardTypeCode}, CAN ID: $canIdHex) Header ACK \u2713 (RX: ${ack.rawHex})'
+              : 'Node #${ack.deviceId} (${ack.boardTypeCode}, CAN ID: $canIdHex) Header Response NOT as expected! Expected: [0x79 or 0x4F 0x4B Header ACK], Received: [${ack.rawHex}] ($errText)',
           boardCanId: ack.canId,
           boardSuccess: ack.success,
         );
       }
 
+      // Check for selected boards that did NOT respond at all (timeout)
+      final respondedCanIds = headerAcks.map((a) => a.canId).toSet();
+      final noResponseBoards = selectedBoards.where((b) => !respondedCanIds.contains(b.canId)).toList();
+
+      for (final board in noResponseBoards) {
+        yield BulkUploadProgress(
+          status: BulkUploadStatus.waitingHeaderAck,
+          totalFrames: file.frameCount,
+          message: 'Node #${board.deviceId} (${board.boardTypeName}, CAN ID: ${board.canIdHex}) Header Response NOT received! Expected: [0x79 or 0x4F 0x4B Header ACK], Received: [NONE / Timeout]',
+          boardCanId: board.canId,
+          boardSuccess: false,
+        );
+      }
+
       final allHeaderAcks = headerAcks;
 
-      if (allHeaderAcks.isEmpty) {
+      if (allHeaderAcks.isEmpty && noResponseBoards.isNotEmpty) {
+        yield BulkUploadProgress(
+          status: BulkUploadStatus.error,
+          totalFrames: file.frameCount,
+          message: 'No response received from any board for Header packet (Timeout 15s).',
+        );
+        return;
+      } else if (allHeaderAcks.isEmpty) {
         yield BulkUploadProgress(
           status: BulkUploadStatus.error,
           totalFrames: file.frameCount,
@@ -1052,13 +1074,14 @@ class BulkFirmwareService {
       final secondByte = hexParts.length >= 2 ? hexParts[1].toUpperCase() : '';
       final isAck = firstByte == '79' || (firstByte == '4F' && secondByte == '4B');
       // ACK: 0x79 or 0x4F4B (OK), Errors: 0xE1–0xE7
-      if (isAck || firstByte == 'E1' || firstByte == 'E2' || firstByte == 'E3' || firstByte == 'E4' || firstByte == 'E6' || firstByte == 'E7') {
-        final canIdStr = frame['canId']?.toString() ?? '';
-        final canIdNum = int.tryParse(
-          canIdStr.replaceAll('0x', '').replaceAll(' ', ''),
-          radix: 16,
-        ) ?? 0;
+      final canIdStr = frame['canId']?.toString() ?? '';
+      final canIdNum = int.tryParse(
+        canIdStr.replaceAll('0x', '').replaceAll(' ', ''),
+        radix: 16,
+      ) ?? 0;
 
+      // Process if this is from an expected board or any board
+      if (expectedCanIds == null || expectedCanIds.isEmpty || expectedCanIds.contains(canIdNum)) {
         // Try parsing using both Format A and Format B
         String boardTypeCode = 'UNKNOWN';
         int deviceId = 0;
@@ -1098,12 +1121,19 @@ class BulkFirmwareService {
           }
         }
 
-        // Build error description for NACK codes
+        // Build error description for NACK codes or unexpected opcodes
         final errorCode = int.tryParse(firstByte, radix: 16) ?? 0;
-        final errDesc = !isAck ? errorDescription(errorCode) : '';
+        String errDesc = '';
+        if (!isAck) {
+          if (errorCode >= 0xE1 && errorCode <= 0xE7) {
+            errDesc = errorDescription(errorCode);
+          } else {
+            errDesc = 'Unexpected response opcode (0x$firstByte). Expected ACK (0x79 or 0x4F4B)';
+          }
+        }
 
         // Ensure we don't add duplicates if a board spams ACKs
-        if (deviceId > 0 && !acks.any((a) => a.canId == canIdNum)) {
+        if (!acks.any((a) => a.canId == canIdNum)) {
           acks.add(_BoardAck(
             canId: canIdNum,
             deviceId: deviceId,

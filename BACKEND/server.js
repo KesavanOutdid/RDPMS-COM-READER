@@ -5,7 +5,7 @@
 // Connects to MongoDB Atlas, serves the Reports web viewer, and exposes
 // REST API endpoints for saving/fetching QC test records.
 //
-// Host Machine IP : 192.168.0.12
+// Host Machine IP : 192.168.0.30
 // Default Port    : 3001 (configured in ./config/default.js)
 // Binding         : 0.0.0.0 (all network interfaces — allows LAN access)
 // =========================================================================
@@ -69,11 +69,11 @@ async function startServer() {
   try {
     // Step 1: Connect to MongoDB Atlas
     await db.connect();
-    
+
     // Step 2: Start HTTP server — bind to 0.0.0.0 so other LAN machines can reach it
     const server = app.listen(SERVER_PORT, '0.0.0.0', () => {
-      console.log(`\n🚀 RDPMS Backend running on LAN: http://192.168.0.12:${SERVER_PORT}`);
-      console.log(`📊 Report Viewer available at: http://192.168.0.12:${SERVER_PORT}/reports`);
+      console.log(`\n🚀 RDPMS Backend running on LAN: http://192.168.0.30:${SERVER_PORT}`);
+      console.log(`📊 Report Viewer available at: http://192.168.0.30:${SERVER_PORT}/reports`);
       console.log(`📡 Real-Time Client Connection Logging Enabled\n`);
     });
 

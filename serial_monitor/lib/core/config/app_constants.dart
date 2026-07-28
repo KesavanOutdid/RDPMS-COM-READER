@@ -7,7 +7,7 @@ class AppConstants {
   static const String appVersion = '1.0.0';
 
   // Backend API Server Config (Host machine IP for local network sharing)
-  static const String backendHost = '192.168.0.12';
+  static const String backendHost = '192.168.0.30';
   static const int backendPort = 3001;
   static const String apiBaseUrl = 'http://$backendHost:$backendPort/api';
 
