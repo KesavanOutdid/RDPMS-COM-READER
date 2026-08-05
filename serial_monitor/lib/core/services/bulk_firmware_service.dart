@@ -580,6 +580,8 @@ class BulkFirmwareService {
         }
       }
 
+
+
       yield BulkUploadProgress(
         status: BulkUploadStatus.sendingHeader,
         totalFrames: file.frameCount,
@@ -611,10 +613,31 @@ class BulkFirmwareService {
       final selectedCanIds = selectedBoards.map((board) => board.canId).toSet();
 
       // Wait to collect all staggered ACKs from the bus
-      final headerAcks = await _waitForAcks(
+      var headerAcks = await _waitForAcks(
         expectedCanIds: selectedCanIds,
-        timeoutSeconds: 15,
+        timeoutSeconds: 3,
       );
+
+      // If no ACKs received via CAN FD header, fallback to Standard CAN 8-byte Header
+      if (headerAcks.isEmpty && !_cancelled) {
+        yield BulkUploadProgress(
+          status: BulkUploadStatus.sendingHeader,
+          totalFrames: file.frameCount,
+          message: 'No ACK on CAN FD header. Retrying Broadcast Header via Standard CAN (8-byte)...',
+        );
+
+        _send8ByteFrame(
+          headerPayload,
+          canId: txCanId,
+          channel: channel,
+          isExtended: isExtended,
+        );
+
+        headerAcks = await _waitForAcks(
+          expectedCanIds: selectedCanIds,
+          timeoutSeconds: 12,
+        );
+      }
       
       if (_cancelled) {
         yield BulkUploadProgress(
@@ -1085,36 +1108,36 @@ class BulkFirmwareService {
         // Try parsing using both Format A and Format B
         String boardTypeCode = 'UNKNOWN';
         int deviceId = 0;
-        if (hexParts.length >= 6) {
-          // Format A (Standard): Byte 1-2 are Board Type, Byte 3-4 are Board Number
-          final char1A = int.tryParse(hexParts[1], radix: 16) ?? 0;
-          final char2A = int.tryParse(hexParts[2], radix: 16) ?? 0;
+        final offset = (firstByte == '4F' && secondByte == '4B') ? 2 : 1;
+        if (hexParts.length >= offset + 4) {
+          // Format A (Standard): Byte offset..offset+1 are Board Type, Byte offset+2..offset+3 are Board Number
+          final char1A = int.tryParse(hexParts[offset], radix: 16) ?? 0;
+          final char2A = int.tryParse(hexParts[offset + 1], radix: 16) ?? 0;
           final codeA = String.fromCharCodes([char1A, char2A]);
           final typeA = BoardType.fromCode(codeA);
 
           if (typeA != null) {
             boardTypeCode = codeA;
-            final boardNoMsb = int.tryParse(hexParts[3], radix: 16) ?? 0;
-            final boardNoLsb = int.tryParse(hexParts[4], radix: 16) ?? 0;
+            final boardNoMsb = int.tryParse(hexParts[offset + 2], radix: 16) ?? 0;
+            final boardNoLsb = int.tryParse(hexParts[offset + 3], radix: 16) ?? 0;
             deviceId = (boardNoMsb << 8) | boardNoLsb;
           } else {
-            // Format B (New): Byte 3-4 are Board Type, Byte 1-2 are Board Number
-            final char1B = int.tryParse(hexParts[3], radix: 16) ?? 0;
-            final char2B = int.tryParse(hexParts[4], radix: 16) ?? 0;
+            // Format B (New): Byte offset+2..offset+3 are Board Type, Byte offset..offset+1 are Board Number
+            final char1B = int.tryParse(hexParts[offset + 2], radix: 16) ?? 0;
+            final char2B = int.tryParse(hexParts[offset + 3], radix: 16) ?? 0;
             final codeB = String.fromCharCodes([char1B, char2B]);
             final typeB = BoardType.fromCode(codeB);
 
             if (typeB != null) {
               boardTypeCode = codeB;
-              final boardNoMsb = int.tryParse(hexParts[1], radix: 16) ?? 0;
-              final boardNoLsb = int.tryParse(hexParts[2], radix: 16) ?? 0;
+              final boardNoMsb = int.tryParse(hexParts[offset], radix: 16) ?? 0;
+              final boardNoLsb = int.tryParse(hexParts[offset + 1], radix: 16) ?? 0;
               deviceId = (boardNoMsb << 8) | boardNoLsb;
             } else {
-              // Fallback to Format A if it is still valid ASCII but type is unknown
               if (char1A >= 32 && char1A <= 126 && char2A >= 32 && char2A <= 126) {
                 boardTypeCode = codeA;
-                final boardNoMsb = int.tryParse(hexParts[3], radix: 16) ?? 0;
-                final boardNoLsb = int.tryParse(hexParts[4], radix: 16) ?? 0;
+                final boardNoMsb = int.tryParse(hexParts[offset + 2], radix: 16) ?? 0;
+                final boardNoLsb = int.tryParse(hexParts[offset + 3], radix: 16) ?? 0;
                 deviceId = (boardNoMsb << 8) | boardNoLsb;
               }
             }

@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -13,7 +12,9 @@ import '../../firmware_upload/views/firmware_upload_dialog.dart';
 import '../../firmware_upload/views/bulk_firmware_dialog.dart';
 import 'calibration_dialog.dart';
 import 'device_test_dialog.dart';
-import 'reports_screen.dart';
+import 'change_serial_no_dialog.dart';
+
+
 
 /// Docklight-style serial monitor screen.
 /// Left pane: Send Sequences (full height)
@@ -102,67 +103,78 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
                     _buildStatusStrip(controller),
                     _buildControlStrip(controller),
                     Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(6, 6, 6, 4),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // ── Left: Send Sequences ──
-                            SizedBox(
-                              width: _sidebarWidth,
-                              child: _buildSendSequencesPanel(controller),
-                            ),
-                            // ── Draggable Divider ──
-                            MouseRegion(
-                              cursor: SystemMouseCursors.resizeColumn,
-                              child: GestureDetector(
-                                onHorizontalDragStart: (_) {
-                                  setState(() => _isDragging = true);
-                                },
-                                onHorizontalDragUpdate: (details) {
-                                  setState(() {
-                                    _sidebarWidth = (_sidebarWidth + details.delta.dx)
-                                        .clamp(_minSidebarWidth, _maxSidebarWidth);
-                                  });
-                                },
-                                onHorizontalDragEnd: (_) {
-                                  setState(() => _isDragging = false);
-                                },
-                                child: Container(
-                                  width: 6,
-                                  color: Colors.transparent,
-                                  child: Center(
-                                    child: AnimatedContainer(
-                                      duration: const Duration(milliseconds: 150),
-                                      width: _isDragging ? 3 : 1,
-                                      height: double.infinity,
-                                      color: _isDragging
-                                          ? AppTheme.primaryColor
-                                          : AppTheme.borderColor,
+                      child: AppConstants.showOnlyTestOption
+                          ? DeviceTestDialog(
+                              serialService: controller.service,
+                              isFD: controller.isCanMode
+                                  ? (controller.canConfig.canType == CanType.canFd)
+                                  : true,
+                              channel: controller.isCanMode
+                                  ? controller.canConfig.channel.value
+                                  : 0,
+                              isEmbedded: true,
+                            )
+                          : Padding(
+                              padding: const EdgeInsets.fromLTRB(6, 6, 6, 4),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  // ── Left: Send Sequences ──
+                                  SizedBox(
+                                    width: _sidebarWidth,
+                                    child: _buildSendSequencesPanel(controller),
+                                  ),
+                                  // ── Draggable Divider ──
+                                  MouseRegion(
+                                    cursor: SystemMouseCursors.resizeColumn,
+                                    child: GestureDetector(
+                                      onHorizontalDragStart: (_) {
+                                        setState(() => _isDragging = true);
+                                      },
+                                      onHorizontalDragUpdate: (details) {
+                                        setState(() {
+                                          _sidebarWidth = (_sidebarWidth + details.delta.dx)
+                                              .clamp(_minSidebarWidth, _maxSidebarWidth);
+                                        });
+                                      },
+                                      onHorizontalDragEnd: (_) {
+                                        setState(() => _isDragging = false);
+                                      },
+                                      child: Container(
+                                        width: 6,
+                                        color: Colors.transparent,
+                                        child: Center(
+                                          child: AnimatedContainer(
+                                            duration: const Duration(milliseconds: 150),
+                                            width: _isDragging ? 3 : 1,
+                                            height: double.infinity,
+                                            color: _isDragging
+                                                ? AppTheme.primaryColor
+                                                : AppTheme.borderColor,
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ),
-                            ),
-                            // ── Right: Tabs + Terminal ──
-                            Expanded(
-                              child: Column(
-                                children: [
-                                  _HorizontalTabBar(controller: controller),
+                                  // ── Right: Tabs + Terminal ──
                                   Expanded(
-                                    child: KeyedSubtree(
-                                      key: ValueKey(controller.activeTabIndex),
-                                      child: TabViewWidget(
-                                        tabIndex: controller.activeTabIndex,
-                                      ),
+                                    child: Column(
+                                      children: [
+                                        _HorizontalTabBar(controller: controller),
+                                        Expanded(
+                                          child: KeyedSubtree(
+                                            key: ValueKey(controller.activeTabIndex),
+                                            child: TabViewWidget(
+                                              tabIndex: controller.activeTabIndex,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                          ],
-                        ),
-                      ),
                     ),
                   ],
                 ),
@@ -442,18 +454,49 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
                   },
                 ),
               ),
-              const SizedBox(width: 6),
-              SizedBox(
-                height: 30,
-                child: Builder(
-                  builder: (context) {
-                    final isFdMode = controller.isConnected &&
-                        (!controller.isCanMode ||
-                            controller.canConfig.canType == CanType.canFd);
-                    return isNarrow
-                        ? Tooltip(
-                            message: 'Firmware Update',
-                            child: OutlinedButton(
+              if (!AppConstants.showOnlyTestOption) ...[
+                const SizedBox(width: 6),
+                SizedBox(
+                  height: 30,
+                  child: Builder(
+                    builder: (context) {
+                      final isFdMode = controller.isConnected &&
+                          (!controller.isCanMode ||
+                              controller.canConfig.canType == CanType.canFd);
+                      return isNarrow
+                          ? Tooltip(
+                              message: 'Firmware Update',
+                              child: OutlinedButton(
+                                onPressed: isFdMode
+                                    ? () => Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => FirmwareUploadDialog(
+                                              serialService: controller.service,
+                                              isFD: controller.isCanMode
+                                                  ? (controller.canConfig.canType ==
+                                                      CanType.canFd)
+                                                  : true,
+                                              channel: controller.isCanMode
+                                                  ? controller.canConfig.channel.value
+                                                  : 0,
+                                            ),
+                                          ),
+                                        )
+                                    : null,
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppTheme.accentOrange,
+                                  side: BorderSide(
+                                    color: isFdMode
+                                        ? AppTheme.accentOrange.withValues(alpha: 0.5)
+                                        : AppTheme.borderColor,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: const Size(30, 30),
+                                ),
+                                child: const Icon(Icons.memory_rounded, size: 14),
+                              ),
+                            )
+                          : OutlinedButton.icon(
                               onPressed: isFdMode
                                   ? () => Navigator.of(context).push(
                                         MaterialPageRoute(
@@ -470,6 +513,8 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
                                         ),
                                       )
                                   : null,
+                              icon: const Icon(Icons.memory_rounded, size: 14),
+                              label: Text('Firmware', style: GoogleFonts.inter(fontSize: 11)),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: AppTheme.accentOrange,
                                 side: BorderSide(
@@ -477,56 +522,51 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
                                       ? AppTheme.accentOrange.withValues(alpha: 0.5)
                                       : AppTheme.borderColor,
                                 ),
-                                padding: EdgeInsets.zero,
-                                minimumSize: const Size(30, 30),
+                                padding: const EdgeInsets.symmetric(horizontal: 10),
                               ),
-                              child: const Icon(Icons.memory_rounded, size: 14),
-                            ),
-                          )
-                        : OutlinedButton.icon(
-                            onPressed: isFdMode
-                                ? () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => FirmwareUploadDialog(
-                                          serialService: controller.service,
-                                          isFD: controller.isCanMode
-                                              ? (controller.canConfig.canType ==
-                                                  CanType.canFd)
-                                              : true,
-                                          channel: controller.isCanMode
-                                              ? controller.canConfig.channel.value
-                                              : 0,
-                                        ),
-                                      ),
-                                    )
-                                : null,
-                            icon: const Icon(Icons.memory_rounded, size: 14),
-                            label: Text('Firmware', style: GoogleFonts.inter(fontSize: 11)),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppTheme.accentOrange,
-                              side: BorderSide(
-                                color: isFdMode
-                                    ? AppTheme.accentOrange.withValues(alpha: 0.5)
-                                    : AppTheme.borderColor,
-                              ),
-                              padding: const EdgeInsets.symmetric(horizontal: 10),
-                            ),
-                          );
-                  },
+                            );
+                    },
+                  ),
                 ),
-              ),
-              const SizedBox(width: 6),
-              SizedBox(
-                height: 30,
-                child: Builder(
-                  builder: (context) {
-                    final isFdMode = controller.isConnected &&
-                        (!controller.isCanMode ||
-                            controller.canConfig.canType == CanType.canFd);
-                    return isNarrow
-                        ? Tooltip(
-                            message: 'Bulk OTA Update',
-                            child: OutlinedButton(
+                const SizedBox(width: 6),
+                SizedBox(
+                  height: 30,
+                  child: Builder(
+                    builder: (context) {
+                      final isFdMode = controller.isConnected &&
+                          (!controller.isCanMode ||
+                              controller.canConfig.canType == CanType.canFd);
+                      return isNarrow
+                          ? Tooltip(
+                              message: 'Bulk OTA Update',
+                              child: OutlinedButton(
+                                onPressed: isFdMode
+                                    ? () => Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => BulkFirmwareDialog(
+                                              serialService: controller.service,
+                                              channel: controller.isCanMode
+                                                  ? controller.canConfig.channel.value
+                                                  : 0,
+                                              isExtended: false,
+                                            ),
+                                          ),
+                                        )
+                                    : null,
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppTheme.accentCyan,
+                                  side: BorderSide(
+                                    color: isFdMode
+                                        ? AppTheme.accentCyan.withValues(alpha: 0.5)
+                                        : AppTheme.borderColor,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: const Size(30, 30),
+                                ),
+                                child: const Icon(Icons.hub, size: 14),
+                              ),
+                            )
+                          : OutlinedButton.icon(
                               onPressed: isFdMode
                                   ? () => Navigator.of(context).push(
                                         MaterialPageRoute(
@@ -540,6 +580,8 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
                                         ),
                                       )
                                   : null,
+                              icon: const Icon(Icons.hub, size: 14),
+                              label: Text('Bulk OTA', style: GoogleFonts.inter(fontSize: 11)),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: AppTheme.accentCyan,
                                 side: BorderSide(
@@ -547,51 +589,52 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
                                       ? AppTheme.accentCyan.withValues(alpha: 0.5)
                                       : AppTheme.borderColor,
                                 ),
-                                padding: EdgeInsets.zero,
-                                minimumSize: const Size(30, 30),
+                                padding: const EdgeInsets.symmetric(horizontal: 10),
                               ),
-                              child: const Icon(Icons.hub, size: 14),
-                            ),
-                          )
-                        : OutlinedButton.icon(
-                            onPressed: isFdMode
-                                ? () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => BulkFirmwareDialog(
-                                          serialService: controller.service,
-                                          channel: controller.isCanMode
-                                              ? controller.canConfig.channel.value
-                                              : 0,
-                                          isExtended: false,
-                                        ),
-                                      ),
-                                    )
-                                : null,
-                            icon: const Icon(Icons.hub, size: 14),
-                            label: Text('Bulk OTA', style: GoogleFonts.inter(fontSize: 11)),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppTheme.accentCyan,
-                              side: BorderSide(
-                                color: isFdMode
-                                    ? AppTheme.accentCyan.withValues(alpha: 0.5)
-                                    : AppTheme.borderColor,
-                              ),
-                              padding: const EdgeInsets.symmetric(horizontal: 10),
-                            ),
-                          );
-                  },
+                            );
+                    },
+                  ),
                 ),
-              ),
-              const SizedBox(width: 6),
-              SizedBox(
-                height: 30,
-                child: Builder(
-                  builder: (context) {
-                    final isCalibEnabled = controller.isConnected;
-                    return isNarrow
-                        ? Tooltip(
-                            message: 'Device Calibration',
-                            child: OutlinedButton(
+                const SizedBox(width: 6),
+                SizedBox(
+                  height: 30,
+                  child: Builder(
+                    builder: (context) {
+                      final isCalibEnabled = controller.isConnected;
+                      return isNarrow
+                          ? Tooltip(
+                              message: 'Device Calibration',
+                              child: OutlinedButton(
+                                onPressed: isCalibEnabled
+                                    ? () => Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => CalibrationDialog(
+                                              serialService: controller.service,
+                                              isFD: controller.isCanMode
+                                                  ? (controller.canConfig.canType ==
+                                                      CanType.canFd)
+                                                  : true,
+                                              channel: controller.isCanMode
+                                                  ? controller.canConfig.channel.value
+                                                  : 0,
+                                            ),
+                                          ),
+                                        )
+                                    : null,
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppTheme.primaryColor,
+                                  side: BorderSide(
+                                    color: isCalibEnabled
+                                        ? AppTheme.primaryColor.withValues(alpha: 0.5)
+                                        : AppTheme.borderColor,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: const Size(30, 30),
+                                ),
+                                child: const Icon(Icons.tune_rounded, size: 14),
+                              ),
+                            )
+                          : OutlinedButton.icon(
                               onPressed: isCalibEnabled
                                   ? () => Navigator.of(context).push(
                                         MaterialPageRoute(
@@ -608,6 +651,8 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
                                         ),
                                       )
                                   : null,
+                              icon: const Icon(Icons.tune_rounded, size: 14),
+                              label: Text('Calibration', style: GoogleFonts.inter(fontSize: 11)),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: AppTheme.primaryColor,
                                 side: BorderSide(
@@ -615,155 +660,133 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
                                       ? AppTheme.primaryColor.withValues(alpha: 0.5)
                                       : AppTheme.borderColor,
                                 ),
-                                padding: EdgeInsets.zero,
-                                minimumSize: const Size(30, 30),
+                                padding: const EdgeInsets.symmetric(horizontal: 10),
                               ),
-                              child: const Icon(Icons.tune_rounded, size: 14),
-                            ),
-                          )
-                        : OutlinedButton.icon(
-                            onPressed: isCalibEnabled
-                                ? () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => CalibrationDialog(
-                                          serialService: controller.service,
-                                          isFD: controller.isCanMode
-                                              ? (controller.canConfig.canType ==
-                                                  CanType.canFd)
-                                              : true,
-                                          channel: controller.isCanMode
-                                              ? controller.canConfig.channel.value
-                                              : 0,
-                                        ),
-                                      ),
-                                    )
-                                : null,
-                            icon: const Icon(Icons.tune_rounded, size: 14),
-                            label: Text('Calibration', style: GoogleFonts.inter(fontSize: 11)),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppTheme.primaryColor,
-                              side: BorderSide(
-                                color: isCalibEnabled
-                                    ? AppTheme.primaryColor.withValues(alpha: 0.5)
-                                    : AppTheme.borderColor,
-                              ),
-                              padding: const EdgeInsets.symmetric(horizontal: 10),
-                            ),
-                          );
-                  },
+                            );
+                    },
+                  ),
                 ),
-              ),
-              const SizedBox(width: 6),
-              SizedBox(
-                height: 30,
-                child: Builder(
-                  builder: (context) {
-                    final isTestEnabled = controller.isConnected;
-                    return isNarrow
-                        ? Tooltip(
-                            message: 'Device Test',
-                            child: OutlinedButton(
-                              onPressed: isTestEnabled
-                                  ? () => Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (_) => DeviceTestDialog(
-                                            serialService: controller.service,
-                                            isFD: controller.isCanMode
-                                                ? (controller.canConfig.canType ==
-                                                    CanType.canFd)
-                                                : true,
-                                            channel: controller.isCanMode
-                                                ? controller.canConfig.channel.value
-                                                : 0,
-                                          ),
-                                        ),
-                                      )
-                                  : null,
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppTheme.successColor,
-                                side: BorderSide(
-                                  color: isTestEnabled
-                                      ? AppTheme.successColor.withValues(alpha: 0.5)
-                                      : AppTheme.borderColor,
+                const SizedBox(width: 6),
+                SizedBox(
+                  height: 30,
+                  child: Builder(
+                    builder: (context) {
+                      return isNarrow
+                          ? Tooltip(
+                              message: 'Device Test',
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => DeviceTestDialog(
+                                      serialService: controller.service,
+                                      isFD: controller.isCanMode
+                                          ? (controller.canConfig.canType ==
+                                              CanType.canFd)
+                                          : true,
+                                      channel: controller.isCanMode
+                                          ? controller.canConfig.channel.value
+                                          : 0,
+                                    ),
+                                  ),
                                 ),
-                                padding: EdgeInsets.zero,
-                                minimumSize: const Size(30, 30),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppTheme.successColor,
+                                  side: BorderSide(
+                                    color: AppTheme.successColor.withValues(alpha: 0.5),
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: const Size(30, 30),
+                                ),
+                                child: const Icon(Icons.assignment_turned_in, size: 14),
                               ),
-                              child: const Icon(Icons.assignment_turned_in, size: 14),
-                            ),
-                          )
-                        : OutlinedButton.icon(
-                            onPressed: isTestEnabled
-                                  ? () => Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (_) => DeviceTestDialog(
-                                            serialService: controller.service,
-                                            isFD: controller.isCanMode
-                                                ? (controller.canConfig.canType ==
-                                                    CanType.canFd)
-                                                : true,
-                                            channel: controller.isCanMode
-                                                ? controller.canConfig.channel.value
-                                                : 0,
-                                          ),
-                                        ),
-                                      )
-                                  : null,
+                            )
+                          : OutlinedButton.icon(
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => DeviceTestDialog(
+                                    serialService: controller.service,
+                                    isFD: controller.isCanMode
+                                        ? (controller.canConfig.canType ==
+                                            CanType.canFd)
+                                        : true,
+                                    channel: controller.isCanMode
+                                        ? controller.canConfig.channel.value
+                                        : 0,
+                                  ),
+                                ),
+                              ),
                               icon: const Icon(Icons.assignment_turned_in, size: 14),
                               label: Text('Test', style: GoogleFonts.inter(fontSize: 11)),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: AppTheme.successColor,
                                 side: BorderSide(
-                                  color: isTestEnabled
-                                      ? AppTheme.successColor.withValues(alpha: 0.5)
-                                      : AppTheme.borderColor,
+                                  color: AppTheme.successColor.withValues(alpha: 0.5),
                                 ),
                                 padding: const EdgeInsets.symmetric(horizontal: 10),
                               ),
                             );
-                  },
+                    },
+                  ),
                 ),
-              ),
-              const SizedBox(width: 6),
-              SizedBox(
-                height: 30,
-                child: isNarrow
-                    ? Tooltip(
-                        message: 'Reports',
-                        child: OutlinedButton(
+                const SizedBox(width: 6),
+                SizedBox(
+                  height: 30,
+                  child: isNarrow
+                      ? Tooltip(
+                          message: 'Change Serial No',
+                          child: OutlinedButton(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => ChangeSerialNoScreen(
+                                    serialService: controller.service,
+                                    isFD: controller.isCanMode
+                                        ? (controller.canConfig.canType == CanType.canFd)
+                                        : true,
+                                    channel: controller.isCanMode
+                                        ? controller.canConfig.channel.value
+                                        : 0,
+                                  ),
+                                ),
+                              );
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.accentCyan,
+                              side: const BorderSide(color: AppTheme.borderColor),
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(30, 30),
+                            ),
+                            child: const Icon(Icons.edit_note_rounded, size: 14),
+                          ),
+                        )
+                      : OutlinedButton.icon(
                           onPressed: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
-                                builder: (_) => const ReportsScreen(),
+                                builder: (_) => ChangeSerialNoScreen(
+                                  serialService: controller.service,
+                                  isFD: controller.isCanMode
+                                      ? (controller.canConfig.canType == CanType.canFd)
+                                      : true,
+                                  channel: controller.isCanMode
+                                      ? controller.canConfig.channel.value
+                                      : 0,
+                                ),
                               ),
                             );
                           },
+                          icon: const Icon(Icons.edit_note_rounded, size: 14),
+                          label: Text('Change Serial No', style: GoogleFonts.inter(fontSize: 11)),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: AppTheme.accentCyan,
                             side: const BorderSide(color: AppTheme.borderColor),
-                            padding: EdgeInsets.zero,
-                            minimumSize: const Size(30, 30),
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
                           ),
-                          child: const Icon(Icons.print, size: 14),
                         ),
-                      )
-                    : OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const ReportsScreen(),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.print, size: 14),
-                        label: Text('Reports', style: GoogleFonts.inter(fontSize: 11)),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppTheme.accentCyan,
-                          side: const BorderSide(color: AppTheme.borderColor),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                        ),
-                      ),
-              ),
+                ),
+
+
+              ],
               const SizedBox(width: 12),
               if (!isNarrow) ...[
                 Expanded(
@@ -788,6 +811,18 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
                 AppTheme.receivedColor,
               ),
               const SizedBox(width: 8),
+              SizedBox(
+                height: 24,
+                width: 24,
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  iconSize: 14,
+                  tooltip: 'Reset App Data / Saved Sequences',
+                  icon: const Icon(Icons.restart_alt_rounded, color: AppTheme.errorColor),
+                  onPressed: () => _showResetDialog(context, controller),
+                ),
+              ),
+              const SizedBox(width: 4),
               // About button (#19)
               SizedBox(
                 height: 24,
@@ -804,6 +839,42 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
           ),
         );
       },
+    );
+  }
+
+  void _showResetDialog(BuildContext context, PortController controller) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.bgCard,
+        title: Text(
+          'Reset App Data',
+          style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+        ),
+        content: Text(
+          'Are you sure you want to clear all saved sequences, tabs, and preferences? This will reset the app to a clean, fresh state.',
+          style: GoogleFonts.inter(color: AppTheme.textSecondary, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.errorColor),
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await controller.resetAllData();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('All saved data and sequences have been reset!')),
+                );
+              }
+            },
+            child: const Text('Reset All Data'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -921,6 +992,33 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
 
     return _PanelFrame(
       title: 'Send Sequences',
+      action: InkWell(
+        onTap: () => controller.addSendSequence(controller.activeTabIndex),
+        borderRadius: BorderRadius.circular(4),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppTheme.primaryColor.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.4)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.add_rounded, size: 14, color: AppTheme.primaryColor),
+              const SizedBox(width: 4),
+              Text(
+                'Add Sequence',
+                style: GoogleFonts.inter(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.primaryColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
       child: Column(
         children: [
           _tableHeader(
@@ -928,6 +1026,7 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
               _TableColumn(label: 'Send', width: 60),
               _TableColumn(label: 'Name', width: 100),
               _TableColumn(label: 'Sequence'),
+              _TableColumn(label: 'Actions', width: 65),
             ],
           ),
           Expanded(
@@ -1457,8 +1556,9 @@ class _HorizontalTabBarState extends State<_HorizontalTabBar> {
 class _PanelFrame extends StatelessWidget {
   final String title;
   final Widget child;
+  final Widget? action;
 
-  const _PanelFrame({required this.title, required this.child});
+  const _PanelFrame({required this.title, required this.child, this.action});
 
   @override
   Widget build(BuildContext context) {
@@ -1470,17 +1570,21 @@ class _PanelFrame extends StatelessWidget {
             height: 34,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: AppTheme.headerDecoration,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                title,
-                style: GoogleFonts.inter(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.textSecondary,
-                  letterSpacing: 0.5,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textSecondary,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
                 ),
-              ),
+                if (action != null) action!,
+              ],
             ),
           ),
           Expanded(
@@ -2948,22 +3052,25 @@ class _SequenceEditableRowState extends State<_SequenceEditableRow> {
 
   void _onFocusChange() {
     if (!_nameFocusNode.hasFocus && !_sequenceFocusNode.hasFocus) {
-      widget.controller.updateSendSequence(
-        widget.tabIndex,
-        widget.index,
-        name: _nameController.text,
-        sequence: _sequenceController.text,
-      );
+      if (_nameController.text != widget.sequence.name ||
+          _sequenceController.text != widget.sequence.sequence) {
+        widget.controller.updateSendSequence(
+          widget.tabIndex,
+          widget.index,
+          name: _nameController.text,
+          sequence: _sequenceController.text,
+        );
+      }
     }
   }
 
   @override
   void didUpdateWidget(covariant _SequenceEditableRow oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.sequence.name != widget.sequence.name && !_nameFocusNode.hasFocus) {
+    if (_nameController.text != widget.sequence.name && !_nameFocusNode.hasFocus) {
       _nameController.text = widget.sequence.name;
     }
-    if (oldWidget.sequence.sequence != widget.sequence.sequence && !_sequenceFocusNode.hasFocus) {
+    if (_sequenceController.text != widget.sequence.sequence && !_sequenceFocusNode.hasFocus) {
       _sequenceController.text = widget.sequence.sequence;
     }
   }
@@ -3009,7 +3116,7 @@ class _SequenceEditableRowState extends State<_SequenceEditableRow> {
                   widget.controller.selectSendSequence(widget.tabIndex, widget.index);
                 },
                 child: Padding(
-                  padding: const EdgeInsets.only(right: 10),
+                  padding: const EdgeInsets.only(right: 6),
                   child: Row(
                     children: [
                       SizedBox(
@@ -3041,6 +3148,38 @@ class _SequenceEditableRowState extends State<_SequenceEditableRow> {
                   ),
                 ),
               ),
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.edit_note_rounded, size: 16, color: AppTheme.textMuted),
+                  onPressed: () {
+                    _showEditSendSequenceDialog(
+                      context,
+                      widget.controller,
+                      widget.tabIndex,
+                      widget.index,
+                    );
+                  },
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  splashRadius: 16,
+                  tooltip: 'Advanced Settings',
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded, size: 15, color: AppTheme.errorColor),
+                  onPressed: () {
+                    widget.controller.deleteSendSequence(widget.tabIndex, widget.index);
+                  },
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  splashRadius: 16,
+                  tooltip: 'Delete Sequence',
+                ),
+                const SizedBox(width: 8),
+              ],
             ),
           ],
         ),
@@ -3121,22 +3260,38 @@ class _SequenceEditableRowState extends State<_SequenceEditableRow> {
               ),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.edit_note_rounded, size: 16, color: AppTheme.textMuted),
-            onPressed: () {
-              _showEditSendSequenceDialog(
-                context,
-                widget.controller,
-                widget.tabIndex,
-                widget.index,
-              );
-            },
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-            splashRadius: 16,
-            tooltip: 'Advanced Settings',
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.edit_note_rounded, size: 16, color: AppTheme.textMuted),
+                onPressed: () {
+                  _showEditSendSequenceDialog(
+                    context,
+                    widget.controller,
+                    widget.tabIndex,
+                    widget.index,
+                  );
+                },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                splashRadius: 16,
+                tooltip: 'Advanced Settings',
+              ),
+              const SizedBox(width: 6),
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded, size: 15, color: AppTheme.errorColor),
+                onPressed: () {
+                  widget.controller.deleteSendSequence(widget.tabIndex, widget.index);
+                },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                splashRadius: 16,
+                tooltip: 'Delete Sequence',
+              ),
+              const SizedBox(width: 8),
+            ],
           ),
-          const SizedBox(width: 8),
         ],
       ),
     );

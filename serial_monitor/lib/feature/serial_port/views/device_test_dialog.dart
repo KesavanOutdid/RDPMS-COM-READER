@@ -9,17 +9,21 @@ import '../../../core/services/serial_port_service.dart';
 import '../../../utils/theme/app_theme.dart';
 import 'calibration_dialog.dart';
 import 'reports_screen.dart';
+import 'change_serial_no_dialog.dart';
+
 
 class DeviceTestDialog extends StatefulWidget {
   final SerialPortService serialService;
   final bool isFD;
   final int channel;
+  final bool isEmbedded;
 
   const DeviceTestDialog({
     super.key,
     required this.serialService,
     required this.isFD,
     required this.channel,
+    this.isEmbedded = false,
   });
 
   @override
@@ -67,31 +71,31 @@ class _DeviceTestDialogState extends State<DeviceTestDialog> {
     CalibrationType.acCurrent,
   ];
 
-  // Test commands — only TX_REQUEST + GET_SERIAL per profile
+  // Test commands — only GET VALUES + READ SERIAL NUMBER per profile
   static final Map<CalibrationType, List<CalibrationCommand>> _testCommands = {
     CalibrationType.lowVoltage: [
-      const CalibrationCommand(name: 'CMD_GET_SERIAL', hexValue: 0x01, description: 'Get device serial number'),
-      const CalibrationCommand(name: 'CMD_TX_REQUEST', hexValue: 0xF8, description: 'Request real-time Low Voltage data'),
+      const CalibrationCommand(name: 'READ SERIAL NUMBER', hexValue: 0x01, description: 'Get device serial number'),
+      const CalibrationCommand(name: 'GET VALUES', hexValue: 0xF8, description: 'Request real-time Low Voltage data'),
     ],
     CalibrationType.highVoltage: [
-      const CalibrationCommand(name: 'CMD_GET_SERIAL', hexValue: 0x01, description: 'Get device serial number'),
-      const CalibrationCommand(name: 'CMD_TX_REQUEST', hexValue: 0xE8, description: 'Request real-time High Voltage data'),
+      const CalibrationCommand(name: 'READ SERIAL NUMBER', hexValue: 0x01, description: 'Get device serial number'),
+      const CalibrationCommand(name: 'GET VALUES', hexValue: 0xE8, description: 'Request real-time High Voltage data'),
     ],
     CalibrationType.acVoltage: [
-      const CalibrationCommand(name: 'CMD_GET_SERIAL', hexValue: 0x01, description: 'Get device serial number'),
-      const CalibrationCommand(name: 'CMD_TX_REQUEST', hexValue: 0xA8, description: 'Request real-time AC Voltage data'),
+      const CalibrationCommand(name: 'READ SERIAL NUMBER', hexValue: 0x01, description: 'Get device serial number'),
+      const CalibrationCommand(name: 'GET VALUES', hexValue: 0xA8, description: 'Request real-time AC Voltage data'),
     ],
     CalibrationType.acCurrent: [
-      const CalibrationCommand(name: 'CMD_GET_SERIAL', hexValue: 0x01, description: 'Get device serial number'),
-      const CalibrationCommand(name: 'CMD_TX_REQUEST', hexValue: 0xB8, description: 'Request real-time AC Current data'),
+      const CalibrationCommand(name: 'READ SERIAL NUMBER', hexValue: 0x01, description: 'Get device serial number'),
+      const CalibrationCommand(name: 'GET VALUES', hexValue: 0xB8, description: 'Request real-time AC Current data'),
     ],
     CalibrationType.lowCurrent: [
-      const CalibrationCommand(name: 'CMD_GET_SERIAL', hexValue: 0x01, description: 'Get device serial number'),
-      const CalibrationCommand(name: 'CMD_TX_REQUEST', hexValue: 0xC8, description: 'Request real-time Low Current data'),
+      const CalibrationCommand(name: 'READ SERIAL NUMBER', hexValue: 0x01, description: 'Get device serial number'),
+      const CalibrationCommand(name: 'GET VALUES', hexValue: 0xC8, description: 'Request real-time Low Current data'),
     ],
     CalibrationType.highCurrent: [
-      const CalibrationCommand(name: 'CMD_GET_SERIAL', hexValue: 0x01, description: 'Get device serial number'),
-      const CalibrationCommand(name: 'CMD_TX_REQUEST', hexValue: 0xD8, description: 'Request real-time High Current data'),
+      const CalibrationCommand(name: 'READ SERIAL NUMBER', hexValue: 0x01, description: 'Get device serial number'),
+      const CalibrationCommand(name: 'GET VALUES', hexValue: 0xD8, description: 'Request real-time High Current data'),
     ],
   };
 
@@ -300,9 +304,19 @@ class _DeviceTestDialogState extends State<DeviceTestDialog> {
         sn = val.toString();
       }
       _addLog('✓ Decoded Serial Number from device (Hex → ASCII): "$sn"', _LogLevel.success);
+
+      // Auto-fill Target CAN ID from the incoming response CAN ID
+      final cleanRxCanId = canId.replaceAll('0x', '').replaceAll(' ', '').trim().toUpperCase();
+
       setState(() {
         _serialController.text = sn;
+        if (cleanRxCanId.isNotEmpty) {
+          _canIdController.text = cleanRxCanId;
+        }
       });
+      if (cleanRxCanId.isNotEmpty) {
+        _addLog('✓ Auto-filled Target CAN ID from response: "$cleanRxCanId"', _LogLevel.success);
+      }
       _checkIfSerialTested(sn);
       return;
     }
@@ -455,13 +469,13 @@ class _DeviceTestDialogState extends State<DeviceTestDialog> {
       return;
     }
 
-    _addLog('→ Sending Serial Number Request (0x01 0x02) to device...', _LogLevel.tx);
+    _addLog('→ Sending Serial Number Request (0x01 0x02) with default CAN ID (FF)...', _LogLevel.tx);
 
     final List<int> frameData = [0x01, 0x02, 0, 0, 0, 0, 0, 0];
 
     if (widget.serialService.isCanMode) {
-      final rawCanId = _canIdController.text.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '').toUpperCase();
-      final canIdStr = rawCanId.isEmpty ? '0x00000001' : '0x$rawCanId';
+      // Always use default CAN ID 0x000000FF (FF) for serial number request regardless of manual edits
+      const canIdStr = '0x000000FF';
       final success = widget.serialService.sendCanFrame(
         canId: canIdStr,
         data: frameData,
@@ -699,36 +713,64 @@ class _DeviceTestDialogState extends State<DeviceTestDialog> {
     );
   }
 
+  void _openChangeSerialNoDialog() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChangeSerialNoScreen(
+          serialService: widget.serialService,
+          channel: widget.channel,
+          isFD: widget.isFD,
+        ),
+      ),
+    );
+  }
+
+
+
   @override
   Widget build(BuildContext context) {
     final commands = _testCommands[_selectedBoardType] ?? [];
     
     return Scaffold(
       backgroundColor: AppTheme.bgDarkest,
-      appBar: AppBar(
-        backgroundColor: AppTheme.panelHeader,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppTheme.textPrimary),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(
-          'Bolt Quality Control & Testing',
-          style: GoogleFonts.inter(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: AppTheme.textBright,
-          ),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.print_rounded, color: AppTheme.primaryColor),
-            tooltip: 'Print Reports',
-            onPressed: _openReportsScreen,
-          ),
-          const SizedBox(width: 10),
-        ],
-      ),
+      appBar: widget.isEmbedded
+          ? null
+          : AppBar(
+              backgroundColor: AppTheme.panelHeader,
+              elevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back, color: AppTheme.textPrimary),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+              title: Text(
+                'Bolt Quality Control & Testing',
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textBright,
+                ),
+              ),
+              actions: [
+                ElevatedButton.icon(
+                  onPressed: _openChangeSerialNoDialog,
+                  icon: const Icon(Icons.edit_note_rounded, size: 14),
+                  label: Text('Change Serial No', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.accentCyan,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.print_rounded, color: AppTheme.primaryColor),
+                  tooltip: 'Print Reports',
+                  onPressed: _openReportsScreen,
+                ),
+                const SizedBox(width: 10),
+              ],
+            ),
+
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(20),
@@ -892,21 +934,6 @@ class _DeviceTestDialogState extends State<DeviceTestDialog> {
   }
 
   Widget _buildQCThresholdSection() {
-    final status = _calculatedResult;
-    Color statusColor = AppTheme.textMuted;
-    IconData statusIcon = Icons.help_outline_rounded;
-    
-    if (status == 'PASS') {
-      statusColor = AppTheme.successColor;
-      statusIcon = Icons.check_circle_rounded;
-    } else if (status == 'FAIL') {
-      statusColor = AppTheme.errorColor;
-      statusIcon = Icons.cancel_rounded;
-    } else if (status == 'INVALID') {
-      statusColor = AppTheme.accentOrange;
-      statusIcon = Icons.warning_rounded;
-    }
-
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -917,61 +944,27 @@ class _DeviceTestDialogState extends State<DeviceTestDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'QC Verification Values',
-                style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: statusColor.withValues(alpha: 0.4)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(statusIcon, color: statusColor, size: 12),
-                    const SizedBox(width: 4),
-                    Text(
-                      status,
-                      style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: statusColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          Text(
+            'QC Verification Values',
+            style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
           ),
           const SizedBox(height: 12),
           // Serial Number / ID — auto-filled by CMD_GET_SERIAL
-          Row(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildFieldLabel('Serial Number / ID'),
-                    const SizedBox(height: 6),
-                    SizedBox(
-                      height: 38,
-                      child: TextField(
-                        controller: _serialController,
-                        readOnly: true,
-                        style: GoogleFonts.jetBrainsMono(fontSize: 13, color: AppTheme.textBright),
-                        decoration: const InputDecoration(
-                          hintText: 'Auto-filled by CMD_GET_SERIAL',
-                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                        ),
-                      ),
-                    ),
-                  ],
+              _buildFieldLabel('Serial Number / ID'),
+              const SizedBox(height: 6),
+              SizedBox(
+                height: 38,
+                child: TextField(
+                  controller: _serialController,
+                  readOnly: true,
+                  style: GoogleFonts.jetBrainsMono(fontSize: 13, color: AppTheme.textBright),
+                  decoration: const InputDecoration(
+                    hintText: 'Auto-filled by READ SERIAL NUMBER',
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                  ),
                 ),
               ),
             ],
@@ -1478,7 +1471,7 @@ class _DeviceTestDialogState extends State<DeviceTestDialog> {
 
   Widget _buildCommandButton(CalibrationCommand cmd) {
     final hexStr = '0x${cmd.hexValue.toRadixString(16).padLeft(2, '0').toUpperCase()}';
-    final isGetSerial = cmd.name == 'CMD_GET_SERIAL';
+    final isGetSerial = cmd.hexValue == 0x01 || cmd.name == 'READ SERIAL NUMBER' || cmd.name == 'CMD_GET_SERIAL';
     final hasSerial = _serialController.text.trim().isNotEmpty;
     final isEnabled = isGetSerial || hasSerial;
 
@@ -1675,20 +1668,22 @@ class _DeviceTestDialogState extends State<DeviceTestDialog> {
                 ),
               ),
             ),
-            const SizedBox(width: 12),
-            SizedBox(
-              height: 36,
-              child: ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.bgInput,
-                  foregroundColor: AppTheme.textPrimary,
-                  side: const BorderSide(color: AppTheme.borderColor),
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
+            if (!widget.isEmbedded) ...[
+              const SizedBox(width: 12),
+              SizedBox(
+                height: 36,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.bgInput,
+                    foregroundColor: AppTheme.textPrimary,
+                    side: const BorderSide(color: AppTheme.borderColor),
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                  ),
+                  child: Text('Close', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
-                child: Text('Close', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold)),
               ),
-            ),
+            ],
           ],
         ),
       ],

@@ -185,6 +185,28 @@ class SerialPortService {
     }
   }
 
+  /// Switch CAN nominal baud rate on-the-fly without disconnecting USB
+  Future<bool> setCanBaudRate(CanNominalBaudRate baudRate, {CanConfig? activeCanConfig}) async {
+    if (!_isConnected || !_isCanMode) return false;
+
+    _connectAckCompleter = Completer<bool>();
+    final config = (activeCanConfig ?? CanConfig()).copyWith(nominalBaudRate: baudRate);
+    final connectFrame = config.buildConnectFrame();
+
+    if (!_writeLocalBytes(Uint8List.fromList(connectFrame))) {
+      return false;
+    }
+
+    try {
+      final ackSuccess = await _connectAckCompleter!.future
+          .timeout(const Duration(milliseconds: 2000));
+      return ackSuccess;
+    } catch (_) {
+      return true;
+    }
+  }
+
+
   // ═══════════════════════════════════════════════════════════════
   //  DISCONNECT
   // ═══════════════════════════════════════════════════════════════

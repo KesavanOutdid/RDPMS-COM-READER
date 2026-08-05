@@ -303,7 +303,7 @@ class SerialTab {
     'id': id,
     'name': name,
     'tabCanId': tabCanId,
-    'sendSequences': sendSequences.where((s) => !s.isPlaceholder).map((s) => s.toJson()).toList(),
+    'sendSequences': sendSequences.map((s) => s.toJson()).toList(),
     'displayFormat': displayFormat.index,
     'sendFormat': sendFormat.index,
   };

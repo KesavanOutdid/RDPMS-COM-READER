@@ -650,12 +650,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                         child: Row(
                                           children: [
                                             _buildTableHeaderCell('Date & Time', 130),
-                                            _buildTableHeaderCell('Serial Number', 110),
-                                            _buildTableHeaderCell('Type', 80),
-                                            _buildTableHeaderCell('Target', 80),
-                                            _buildTableHeaderCell('Tolerance', 80),
-                                            _buildTableHeaderCell('Measured', 90),
-                                            Expanded(child: _buildTableHeaderCell('Result', 80)),
+                                            _buildTableHeaderCell('Serial Number', 120),
+                                            _buildTableHeaderCell('Board Profile', 130),
+                                            Expanded(child: _buildTableHeaderCell('Verification Points (Ref, Tol, CH1, CH2)', null)),
+                                            _buildTableHeaderCell('Overall Result', 110),
                                           ],
                                         ),
                                       ),
@@ -766,92 +764,177 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Widget _buildTableRow(dynamic rec, bool isEven) {
-    final date = DateTime.parse(rec['timestamp']);
+    final date = rec['timestamp'] != null ? DateTime.parse(rec['timestamp']) : DateTime.now();
     final dateStr = DateFormat('MM/dd/yy HH:mm').format(date);
     
-    final type = rec['paramType']?.toString().toUpperCase() ?? 'N/A';
-    final unit = type == 'CURRENT' ? ' A' : ' V';
-    final isPass = rec['result'] == 'success';
+    final serial = rec['serialNumber']?.toString() ?? 'N/A';
+    final boardType = rec['boardType']?.toString() ?? (rec['paramType']?.toString().toUpperCase() ?? 'N/A');
+    final isPass = rec['result'] == 'success' || rec['result'] == 'PASS';
     
-    final target = rec['targetValue'] != null ? '${rec['targetValue']}$unit' : 'N/A';
-    final tolerance = rec['tolerance'] != null ? '${rec['tolerance']}%' : 'N/A';
-    final measured = '${rec['paramValue']}$unit';
-
     Color resultColor = isPass ? AppTheme.successColor : AppTheme.errorColor;
-    
+    Color resultBg = isPass ? AppTheme.successColor.withValues(alpha: 0.15) : AppTheme.errorColor.withValues(alpha: 0.15);
+
+    final List<dynamic> testRows = rec['testRows'] is List ? rec['testRows'] : [];
+    final unit = boardType.toLowerCase().contains('current') ? ' A' : ' V';
+
     return Container(
-      height: 38,
+      padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
         color: isEven ? AppTheme.bgDarkest.withValues(alpha: 0.2) : Colors.transparent,
         border: const Border(bottom: BorderSide(color: AppTheme.borderColor, width: 0.5)),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Date & Time
           SizedBox(
             width: 130,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text(dateStr, style: GoogleFonts.jetBrainsMono(fontSize: 11, color: AppTheme.textPrimary)),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: Text(
+                dateStr,
+                style: GoogleFonts.jetBrainsMono(fontSize: 11, color: AppTheme.textPrimary),
+              ),
             ),
           ),
           // Serial Number
           SizedBox(
-            width: 110,
+            width: 120,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text(rec['serialNumber']?.toString() ?? 'N/A', style: GoogleFonts.jetBrainsMono(fontSize: 11, color: AppTheme.textPrimary)),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: Text(
+                serial,
+                style: GoogleFonts.jetBrainsMono(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textBright),
+              ),
             ),
           ),
-          // Type
+          // Board Profile
           SizedBox(
-            width: 80,
+            width: 130,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text(type, style: GoogleFonts.inter(fontSize: 11, color: type == 'CURRENT' ? AppTheme.accentOrange : AppTheme.primaryColor, fontWeight: FontWeight.bold)),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.3)),
+                ),
+                child: Text(
+                  boardType,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(fontSize: 10, color: AppTheme.primaryColor, fontWeight: FontWeight.bold),
+                ),
+              ),
             ),
           ),
-          // Target
-          SizedBox(
-            width: 80,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text(target, style: GoogleFonts.jetBrainsMono(fontSize: 11, color: AppTheme.textSecondary)),
-            ),
-          ),
-          // Tolerance
-          SizedBox(
-            width: 80,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text(tolerance, style: GoogleFonts.jetBrainsMono(fontSize: 11, color: AppTheme.textSecondary)),
-            ),
-          ),
-          // Measured
-          SizedBox(
-            width: 90,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text(measured, style: GoogleFonts.jetBrainsMono(fontSize: 11, color: AppTheme.textBright, fontWeight: FontWeight.bold)),
-            ),
-          ),
-          // Result
+          // Verification Points (Sub-table / list)
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                children: [
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration: BoxDecoration(shape: BoxShape.circle, color: resultColor),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    isPass ? 'PASS' : 'FAIL',
-                    style: GoogleFonts.jetBrainsMono(fontSize: 11, color: resultColor, fontWeight: FontWeight.bold),
-                  ),
-                ],
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+              child: testRows.isNotEmpty
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Subtable header row
+                        Container(
+                          padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
+                          decoration: BoxDecoration(
+                            color: AppTheme.panelHeader,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Row(
+                            children: [
+                              SizedBox(width: 24, child: Text('#', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.bold, color: AppTheme.textMuted))),
+                              Expanded(flex: 2, child: Text('Ref', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.bold, color: AppTheme.textMuted))),
+                              Expanded(flex: 2, child: Text('Tol', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.bold, color: AppTheme.textMuted))),
+                              Expanded(flex: 3, child: Text('CH1 Measured', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.bold, color: AppTheme.textMuted))),
+                              Expanded(flex: 3, child: Text('CH2 Measured', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.bold, color: AppTheme.textMuted))),
+                              Expanded(flex: 2, child: Text('Result', style: GoogleFonts.inter(fontSize: 9, fontWeight: FontWeight.bold, color: AppTheme.textMuted))),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        ...testRows.asMap().entries.map((entry) {
+                          final idx = entry.key + 1;
+                          final r = entry.value;
+                          final refVal = r['ref'] != null ? '${r['ref']}$unit' : 'N/A';
+                          final tolVal = r['tolerance'] != null ? '${r['tolerance']}%' : '1.0%';
+                          
+                          final ch1Val = r['useCh1'] == true ? (r['ch1Value'] != null ? '${r['ch1Value']}$unit' : '---') : 'OFF';
+                          final ch1Pass = r['useCh1'] == true ? (r['ch1Result'] == 'PASS') : null;
+                          final ch1Color = r['useCh1'] == true ? (ch1Pass == true ? AppTheme.successColor : AppTheme.errorColor) : AppTheme.textMuted;
+
+                          final ch2Val = r['useCh2'] == true ? (r['ch2Value'] != null ? '${r['ch2Value']}$unit' : '---') : 'OFF';
+                          final ch2Pass = r['useCh2'] == true ? (r['ch2Result'] == 'PASS') : null;
+                          final ch2Color = r['useCh2'] == true ? (ch2Pass == true ? AppTheme.successColor : AppTheme.errorColor) : AppTheme.textMuted;
+
+                          final rowPass = r['result'] == 'PASS';
+                          final rowColor = rowPass ? AppTheme.successColor : AppTheme.errorColor;
+
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 6),
+                            child: Row(
+                              children: [
+                                SizedBox(width: 24, child: Text('#$idx', style: GoogleFonts.jetBrainsMono(fontSize: 10, color: AppTheme.textMuted))),
+                                Expanded(flex: 2, child: Text(refVal, style: GoogleFonts.jetBrainsMono(fontSize: 10, color: AppTheme.textPrimary))),
+                                Expanded(flex: 2, child: Text(tolVal, style: GoogleFonts.jetBrainsMono(fontSize: 10, color: AppTheme.textSecondary))),
+                                Expanded(
+                                  flex: 3,
+                                  child: Text(
+                                    '$ch1Val ${r['useCh1'] == true ? (ch1Pass == true ? '✅' : '❌') : ''}',
+                                    style: GoogleFonts.jetBrainsMono(fontSize: 10, color: ch1Color, fontWeight: FontWeight.w500),
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 3,
+                                  child: Text(
+                                    '$ch2Val ${r['useCh2'] == true ? (ch2Pass == true ? '✅' : '❌') : ''}',
+                                    style: GoogleFonts.jetBrainsMono(fontSize: 10, color: ch2Color, fontWeight: FontWeight.w500),
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(
+                                    r['result']?.toString() ?? 'PENDING',
+                                    style: GoogleFonts.jetBrainsMono(fontSize: 10, color: rowColor, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
+                      ],
+                    )
+                  : Text(
+                      'Legacy record (${rec['targetValue'] ?? "N/A"}$unit ± ${rec['tolerance'] ?? "1.0"}% → ${rec['paramValue'] ?? "N/A"}$unit)',
+                      style: GoogleFonts.inter(fontSize: 11, color: AppTheme.textMuted),
+                    ),
+          ),
+          ),
+          // Overall Result Badge
+          SizedBox(
+            width: 110,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: resultBg,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: resultColor.withValues(alpha: 0.5)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(isPass ? Icons.check_circle_rounded : Icons.cancel_rounded, size: 12, color: resultColor),
+                    const SizedBox(width: 4),
+                    Text(
+                      isPass ? 'PASS' : 'FAIL',
+                      style: GoogleFonts.jetBrainsMono(fontSize: 11, color: resultColor, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

@@ -71,6 +71,9 @@ class AppConstants {
   static const double minTabWidth = 120.0;
   static const double tabHeight = 36.0;
 
+  // UI Feature Flags
+  static const bool showOnlyTestOption = false;
+
   // Splash Screen Duration — fast for desktop tools
   static const Duration splashDuration = Duration(milliseconds: 800);
 }

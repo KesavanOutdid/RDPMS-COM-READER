@@ -153,6 +153,17 @@ class PortController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Dynamically switch CAN nominal baud rate on active connection
+  Future<bool> switchCanBaudRate(CanNominalBaudRate baudRate) async {
+    _canConfig.nominalBaudRate = baudRate;
+    notifyListeners();
+    if (_service.isConnected && _isCanMode) {
+      return await _service.setCanBaudRate(baudRate, activeCanConfig: _canConfig);
+    }
+    return true;
+  }
+
+
   /// Connect to the configured serial port
   Future<bool> connect() async {
     if (_config.portName.isEmpty) {
@@ -347,8 +358,18 @@ class PortController extends ChangeNotifier {
   void addSendSequence(int tabIndex) {
     if (tabIndex < 0 || tabIndex >= _tabs.length) return;
     final tab = _tabs[tabIndex];
-    tab.sendSequences.add(SendSequence(name: tab.tabCanId != null && tab.tabCanId!.isNotEmpty ? 'Msg (${tab.tabCanId})' : '', canIdHex: tab.tabCanId ?? ''));
+    final nextNum = tab.sendSequences.length + 1;
+    final defaultName = tab.tabCanId != null && tab.tabCanId!.isNotEmpty
+        ? 'Msg $nextNum (${tab.tabCanId})'
+        : 'message $nextNum';
+    tab.sendSequences.add(
+      SendSequence(
+        name: defaultName,
+        canIdHex: tab.tabCanId ?? '',
+      ),
+    );
     tab.selectedSendSequenceIndex = tab.sendSequences.length - 1;
+    _saveConfig();
     notifyListeners();
   }
 
@@ -359,7 +380,10 @@ class PortController extends ChangeNotifier {
 
     tab.sendSequences.removeAt(sequenceIndex);
     if (tab.sendSequences.isEmpty) {
-      tab.sendSequences.add(SendSequence(name: tab.tabCanId != null && tab.tabCanId!.isNotEmpty ? 'Msg (${tab.tabCanId})' : 'message 1', canIdHex: tab.tabCanId ?? ''));
+      final defaultName = tab.tabCanId != null && tab.tabCanId!.isNotEmpty
+          ? 'Msg 1 (${tab.tabCanId})'
+          : 'message 1';
+      tab.sendSequences.add(SendSequence(name: defaultName, canIdHex: tab.tabCanId ?? ''));
     }
     _ensureTrailingPlaceholder(tabIndex);
     if (tab.selectedSendSequenceIndex >= tab.sendSequences.length) {
@@ -766,6 +790,7 @@ class PortController extends ChangeNotifier {
   Future<void> _saveConfig() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('app_schema_version', 99);
       // Serial config
       await prefs.setString('lastPort', _config.portName);
       await prefs.setInt('lastBaudRate', _config.baudRate);
@@ -791,10 +816,42 @@ class PortController extends ChangeNotifier {
     }
   }
 
+  /// Force clear all saved data, sequences, tabs, and configurations
+  Future<void> resetAllData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+      _tabs.clear();
+      _tabs.add(SerialTab(name: 'Tab 1'));
+      _activeTabIndex = 0;
+      _ensureTrailingPlaceholder(0);
+      _config.portName = '';
+      _config.baudRate = AppConstants.defaultBaudRate;
+      _statusMessage = 'App data reset to clean state';
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error resetting data: $e');
+    }
+  }
+
   /// Load configuration from shared preferences
   Future<void> _loadConfig() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      const currentSchemaVersion = 99; // Forced clean wipe for version 2.0.0
+      final savedSchema = prefs.getInt('app_schema_version') ?? 0;
+      if (savedSchema < currentSchemaVersion) {
+        await prefs.clear();
+        await prefs.setInt('app_schema_version', currentSchemaVersion);
+        _tabs.clear();
+        _tabs.add(SerialTab(name: 'Tab 1'));
+        _activeTabIndex = 0;
+        _ensureTrailingPlaceholder(0);
+        debugPrint('Legacy cache & saved sequences forcibly cleared — v2.0.0 fresh start');
+        notifyListeners();
+        return;
+      }
+
       // Serial config
       _config.portName = prefs.getString('lastPort') ?? '';
       _config.baudRate =
@@ -860,14 +917,11 @@ class PortController extends ChangeNotifier {
   void _ensureTrailingPlaceholder(int tabIndex) {
     if (tabIndex < 0 || tabIndex >= _tabs.length) return;
     final tab = _tabs[tabIndex];
-    for (var index = tab.sendSequences.length - 2; index >= 0; index--) {
-      if (tab.sendSequences[index].isPlaceholder) {
-        tab.sendSequences.removeAt(index);
-      }
-    }
-
-    if (tab.sendSequences.isEmpty || !tab.sendSequences.last.isPlaceholder) {
-      tab.sendSequences.add(SendSequence(name: '', canIdHex: tab.tabCanId ?? ''));
+    if (tab.sendSequences.isEmpty) {
+      final defaultName = tab.tabCanId != null && tab.tabCanId!.isNotEmpty
+          ? 'Msg 1 (${tab.tabCanId})'
+          : 'message 1';
+      tab.sendSequences.add(SendSequence(name: defaultName, canIdHex: tab.tabCanId ?? ''));
     }
   }
 

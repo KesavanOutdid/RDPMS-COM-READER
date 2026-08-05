@@ -5,7 +5,7 @@
 // Connects to MongoDB Atlas, serves the Reports web viewer, and exposes
 // REST API endpoints for saving/fetching QC test records.
 //
-// Host Machine IP : 192.168.0.30
+// Host Machine IP : 192.168.0.21
 // Default Port    : 3001 (configured in ./config/default.js)
 // Binding         : 0.0.0.0 (all network interfaces — allows LAN access)
 // =========================================================================
@@ -14,6 +14,7 @@
 const express = require('express');   // Web framework for REST API
 const cors = require('cors');         // Cross-Origin Resource Sharing middleware
 const path = require('path');         // File path utility
+const os = require('os');             // Operating system utilities for dynamic IP lookup
 const db = require('./core/db');      // MongoDB Atlas database connection & operations
 const apiRoutes = require('./routes/api');           // REST API route definitions
 const { SERVER_PORT } = require('./config/default'); // Server port from config (default: 3001)
@@ -57,6 +58,28 @@ app.get('/', (req, res) => {
   res.redirect('/reports');
 });
 
+/**
+ * Dynamically retrieves the primary non-internal IPv4 address of the host machine on LAN.
+ * Falls back to 'localhost' if no active LAN interface is found.
+ */
+function getLocalIpAddress() {
+  const interfaces = os.networkInterfaces();
+  let fallbackIp = 'localhost';
+
+  for (const name of Object.keys(interfaces)) {
+    for (const net of interfaces[name]) {
+      const isIPv4 = net.family === 'IPv4' || net.family === 4;
+      if (isIPv4 && !net.internal) {
+        if (net.address.startsWith('192.168.') || net.address.startsWith('10.')) {
+          return net.address;
+        }
+        fallbackIp = net.address;
+      }
+    }
+  }
+  return fallbackIp;
+}
+
 // =========================================================================
 // Server Startup
 // =========================================================================
@@ -71,9 +94,10 @@ async function startServer() {
     await db.connect();
 
     // Step 2: Start HTTP server — bind to 0.0.0.0 so other LAN machines can reach it
+    const localIp = getLocalIpAddress();
     const server = app.listen(SERVER_PORT, '0.0.0.0', () => {
-      console.log(`\n🚀 RDPMS Backend running on LAN: http://192.168.0.30:${SERVER_PORT}`);
-      console.log(`📊 Report Viewer available at: http://192.168.0.30:${SERVER_PORT}/reports`);
+      console.log(`\n🚀 RDPMS Backend running on LAN: http://${localIp}:${SERVER_PORT}`);
+      console.log(`📊 Report Viewer available at: http://${localIp}:${SERVER_PORT}/reports`);
       console.log(`📡 Real-Time Client Connection Logging Enabled\n`);
     });
 
