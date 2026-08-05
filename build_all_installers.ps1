@@ -1,13 +1,13 @@
-# PowerShell script to package build zips and generate Inno Setup installers for both applications
+# PowerShell script to package build zip and generate Inno Setup installer for RDPMS Serial Monitor v2.0.0
 param (
     [string]$InnoCompiler = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 )
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host " Building Zips and Inno Setup Installers  " -ForegroundColor Cyan
-Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "=================================================" -ForegroundColor Cyan
+Write-Host " Building RDPMS Serial Monitor Zip & Inno Setup  " -ForegroundColor Cyan
+Write-Host "=================================================" -ForegroundColor Cyan
 
 # Directories
 $WorkspaceRoot = $PSScriptRoot
@@ -22,30 +22,34 @@ if (-not (Test-Path $ReleaseBuildDir)) {
     Write-Error "Release build directory not found at $ReleaseBuildDir. Please run 'flutter build windows --release' in serial_monitor directory first."
 }
 
-# 1. Zip output files
-$RdpmsZip = Join-Path $OutputDir "RDPMS_Serial_Monitor_v2.0.0.zip"
-$SensedgeZip = Join-Path $OutputDir "APPLICATION_FOR_SENSEDGE.zip"
+# Remove obsolete SENSEDGE files if they exist to keep only the single output
+$ObsoleteFile1 = Join-Path $OutputDir "APPLICATION_FOR_SENSEDGE.zip"
+$ObsoleteFile2 = Join-Path $OutputDir "APPLICATION_FOR_SENSEDGE_Setup.exe"
 
-Write-Host "[1/4] Zipping RDPMS Serial Monitor release build..." -ForegroundColor Yellow
+if (Test-Path $ObsoleteFile1) {
+    Remove-Item $ObsoleteFile1 -Force
+    Write-Host "Cleaned up old file: APPLICATION_FOR_SENSEDGE.zip" -ForegroundColor Gray
+}
+if (Test-Path $ObsoleteFile2) {
+    Remove-Item $ObsoleteFile2 -Force
+    Write-Host "Cleaned up old file: APPLICATION_FOR_SENSEDGE_Setup.exe" -ForegroundColor Gray
+}
+
+# 1. Zip output file
+$RdpmsZip = Join-Path $OutputDir "RDPMS_Serial_Monitor_v2.0.0.zip"
+
+Write-Host "[1/2] Creating RDPMS_Serial_Monitor_v2.0.0.zip..." -ForegroundColor Yellow
 if (Test-Path $RdpmsZip) { Remove-Item $RdpmsZip -Force }
 Compress-Archive -Path "$ReleaseBuildDir\*" -DestinationPath $RdpmsZip -Force
 
-Write-Host "[2/4] Zipping APPLICATION FOR SENSEDGE release build..." -ForegroundColor Yellow
-if (Test-Path $SensedgeZip) { Remove-Item $SensedgeZip -Force }
-Compress-Archive -Path "$ReleaseBuildDir\*" -DestinationPath $SensedgeZip -Force
-
-# 2. Compile Inno Setup Installers
+# 2. Compile Inno Setup Installer
 if (Test-Path $InnoCompiler) {
-    Write-Host "[3/4] Compiling RDPMS Serial Monitor Inno Setup installer..." -ForegroundColor Yellow
-    $IssScript1 = Join-Path $WorkspaceRoot "serial_monitor\installer.iss"
-    & $InnoCompiler $IssScript1
+    Write-Host "[2/2] Compiling RDPMS_Serial_Monitor_v2.0.0_Setup.exe with Inno Setup..." -ForegroundColor Yellow
+    $IssScript = Join-Path $WorkspaceRoot "serial_monitor\installer.iss"
+    & $InnoCompiler $IssScript
 
-    Write-Host "[4/4] Compiling APPLICATION FOR SENSEDGE Inno Setup installer..." -ForegroundColor Yellow
-    $IssScript2 = Join-Path $WorkspaceRoot "serial_monitor\sensedge_installer.iss"
-    & $InnoCompiler $IssScript2
-
-    Write-Host "`nAll zips and Inno Setup installers successfully generated in:" -ForegroundColor Green
+    Write-Host "`nSuccessfully generated build zip & Inno setup installer in:" -ForegroundColor Green
     Write-Host "$OutputDir" -ForegroundColor Green
 } else {
-    Write-Warning "Inno Setup Compiler not found at $InnoCompiler. Zips created, but .exe installers were skipped."
+    Write-Warning "Inno Setup Compiler not found at $InnoCompiler. Zip created, but .exe installer was skipped."
 }
