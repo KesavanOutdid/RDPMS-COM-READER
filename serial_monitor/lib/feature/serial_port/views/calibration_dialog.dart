@@ -118,6 +118,8 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
       const CalibrationCommand(name: 'CMD_EXIT_CALIBRATION', hexValue: 0xA7, description: 'Exit calibration mode and save calibration data'),
       const CalibrationCommand(name: 'CMD_TX_REQUEST', hexValue: 0xA8, description: 'Request voltage/current transmission'),
       const CalibrationCommand(name: 'CMD_SET_PERCENTAGE', hexValue: 0xA9, description: 'Configure percentage threshold'),
+      const CalibrationCommand(name: 'CMD_AB_MIN_VALUE', hexValue: 0xAB, description: 'Configure & store AB min calibration ref value'),
+      const CalibrationCommand(name: 'CMD_AC_MAX_VALUE', hexValue: 0xAC, description: 'Configure & store AC max calibration ref value'),
     ],
     CalibrationType.lowCurrent: [
       const CalibrationCommand(name: 'CMD_ENTER_CALIBRATION', hexValue: 0xC0, description: 'Enter calibration mode'),
@@ -315,7 +317,10 @@ class _CalibrationDialogState extends State<CalibrationDialog> {
               rawBytes[0] == 0xB3 ||
               rawBytes[0] == 0xA3 ||
               rawBytes[0] == 0xB5 ||
-              rawBytes[0] == 0xA5);
+              rawBytes[0] == 0xA5 ||
+              rawBytes[0] == 0xAA ||
+              rawBytes[0] == 0xAB ||
+              rawBytes[0] == 0xAC);
 
       final isVersionCmd = rawBytes.isNotEmpty &&
           (rawBytes[0] == 0xFB ||

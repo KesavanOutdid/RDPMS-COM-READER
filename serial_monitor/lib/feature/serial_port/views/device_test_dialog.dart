@@ -188,13 +188,15 @@ class _DeviceTestDialogState extends State<DeviceTestDialog> {
     if (!mounted) return;
     setState(() {
       _log.add(_LogEntry(timestamp: ts, message: msg, level: level));
+      // Evict oldest 10 entries whenever limit of 100 is exceeded to maintain high-performance rendering during bulk data reception
+      if (_log.length > 100) {
+        _log.removeRange(0, 10);
+      }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_logScrollController.hasClients) {
-        _logScrollController.animateTo(
+        _logScrollController.jumpTo(
           _logScrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOut,
         );
       }
     });
