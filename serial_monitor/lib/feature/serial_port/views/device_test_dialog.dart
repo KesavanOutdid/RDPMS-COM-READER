@@ -501,27 +501,33 @@ class _DeviceTestDialogState extends State<DeviceTestDialog> {
     
     _addLog('Checking if serial "$serial" has been tested in DB...', _LogLevel.info);
     final client = HttpClient();
+    final hostsToTry = [AppConstants.backendHost, '127.0.0.1', 'localhost', '192.168.0.19'];
     try {
-      final url = Uri.parse('http://localhost:3001/api/tests?serialNumber=${Uri.encodeComponent(serial)}&limit=1');
-      final request = await client.getUrl(url).timeout(const Duration(seconds: 3));
-      final response = await request.close();
-      if (response.statusCode == 200) {
-        final body = await response.transform(utf8.decoder).join();
-        final json = jsonDecode(body);
-        if (json['success'] == true) {
-          final List<dynamic> records = json['records'];
-          if (records.isNotEmpty) {
-            _addLog('⚠️ Alert: Serial "$serial" has ALREADY been tested in the database.', _LogLevel.error);
-            if (mounted) {
-              _showAlreadyTestedDialog(serial);
+      for (final host in hostsToTry.toSet()) {
+        try {
+          final url = Uri.parse('http://$host:${AppConstants.backendPort}/api/tests?serialNumber=${Uri.encodeComponent(serial)}&limit=1');
+          final request = await client.getUrl(url).timeout(const Duration(seconds: 3));
+          final response = await request.close();
+          if (response.statusCode == 200) {
+            final body = await response.transform(utf8.decoder).join();
+            final json = jsonDecode(body);
+            if (json['success'] == true) {
+              final List<dynamic> records = json['records'];
+              if (records.isNotEmpty) {
+                _addLog('⚠️ Alert: Serial "$serial" has ALREADY been tested in the database.', _LogLevel.error);
+                if (mounted) {
+                  _showAlreadyTestedDialog(serial);
+                }
+              } else {
+                _addLog('✓ Serial "$serial" is new (no existing database records).', _LogLevel.success);
+              }
             }
-          } else {
-            _addLog('✓ Serial "$serial" is new (no existing database records).', _LogLevel.success);
+            break;
           }
+        } catch (_) {
+          // Try next candidate host
         }
       }
-    } catch (_) {
-      // Ignore network errors on check
     } finally {
       client.close();
     }
@@ -662,9 +668,6 @@ class _DeviceTestDialogState extends State<DeviceTestDialog> {
     final hasFailures = _refRows.any((r) => r.ch1Pass == false || r.ch2Pass == false);
     final isOverallSuccess = !hasFailures && _refRows.any((r) => r.ch1Pass == true && r.ch2Pass == true);
 
-    final activeRow = _refRows.length > _activeRowIndex ? _refRows[_activeRowIndex] : _refRows.first;
-    final primaryTarget = double.tryParse(activeRow.refController.text) ?? 0.0;
-
     setState(() {
       _isSaving = true;
     });
@@ -672,33 +675,47 @@ class _DeviceTestDialogState extends State<DeviceTestDialog> {
     _addLog('Saving QC record for serial "$serial" to database...', _LogLevel.info);
 
     final client = HttpClient();
-    try {
-      final url = Uri.parse('${AppConstants.apiBaseUrl}/tests');
-      final request = await client.postUrl(url).timeout(const Duration(seconds: 4));
-      request.headers.contentType = ContentType.json;
-      
-      final payload = {
-        'serialNumber': serial,
-        'boardType': _selectedBoardType.label,
-        'paramType': (_selectedBoardType == CalibrationType.acCurrent || 
-                      _selectedBoardType == CalibrationType.lowCurrent || 
-                      _selectedBoardType == CalibrationType.highCurrent) 
-                      ? 'current' : 'voltage',
-        'result': isOverallSuccess ? 'success' : 'fail',
-        'testRows': testRowsData,
-      };
+    final hostsToTry = [AppConstants.backendHost, '127.0.0.1', 'localhost', '192.168.0.19'];
+    bool saved = false;
 
-      request.write(json.encode(payload));
-      
-      final response = await request.close();
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        _addLog('✅ Success: QC Record saved to DB (Replaced previous entry for serial "$serial").', _LogLevel.success);
-      } else {
-        final body = await response.transform(utf8.decoder).join();
-        _addLog('❌ Failed to save: $body', _LogLevel.error);
+    try {
+      for (final host in hostsToTry.toSet()) {
+        try {
+          final url = Uri.parse('http://$host:${AppConstants.backendPort}/api/tests');
+          final request = await client.postUrl(url).timeout(const Duration(seconds: 3));
+          request.headers.contentType = ContentType.json;
+          
+          final payload = {
+            'serialNumber': serial,
+            'boardType': _selectedBoardType.label,
+            'paramType': (_selectedBoardType == CalibrationType.acCurrent || 
+                          _selectedBoardType == CalibrationType.lowCurrent || 
+                          _selectedBoardType == CalibrationType.highCurrent) 
+                          ? 'current' : 'voltage',
+            'result': isOverallSuccess ? 'success' : 'fail',
+            'testRows': testRowsData,
+          };
+
+          request.write(json.encode(payload));
+          
+          final response = await request.close();
+          if (response.statusCode == 200 || response.statusCode == 201) {
+            _addLog('✅ Success: QC Record saved to DB (Replaced previous entry for serial "$serial").', _LogLevel.success);
+            saved = true;
+            break;
+          } else {
+            final body = await response.transform(utf8.decoder).join();
+            _addLog('❌ Failed to save: $body', _LogLevel.error);
+            saved = true;
+            break;
+          }
+        } catch (_) {
+          // Fallback to next host candidate
+        }
       }
-    } catch (e) {
-      _addLog('❌ Network error: Could not contact local backend API.', _LogLevel.error);
+      if (!saved) {
+        _addLog('❌ Network error: Could not contact local backend API.', _LogLevel.error);
+      }
     } finally {
       client.close();
       setState(() {

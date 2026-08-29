@@ -63,3 +63,5 @@ Filename: "reg.exe"; Parameters: "delete ""HKCU\Software\serial_monitor"" /f"; F
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+

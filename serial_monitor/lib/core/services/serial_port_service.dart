@@ -21,6 +21,7 @@ class SerialPortService {
   String _connectedPort = '';
   List<String> _availablePorts = const [];
   bool _isCanMode = true;
+  CanConfig? _activeCanConfig;
 
   // ── Local frame parser ──
   final CanFrameParser _frameParser = CanFrameParser();
@@ -134,6 +135,7 @@ class SerialPortService {
 
       _isConnected = true;
       _isCanMode = canConfig != null;
+      _activeCanConfig = canConfig;
       _connectedPort = config.portName;
       _frameParser.clear();
 
@@ -190,7 +192,10 @@ class SerialPortService {
     if (!_isConnected || !_isCanMode) return false;
 
     _connectAckCompleter = Completer<bool>();
-    final config = (activeCanConfig ?? CanConfig()).copyWith(nominalBaudRate: baudRate);
+    if (activeCanConfig != null) {
+      _activeCanConfig = activeCanConfig;
+    }
+    final config = (_activeCanConfig ?? CanConfig()).copyWith(nominalBaudRate: baudRate);
     final connectFrame = config.buildConnectFrame();
 
     if (!_writeLocalBytes(Uint8List.fromList(connectFrame))) {
@@ -228,6 +233,7 @@ class SerialPortService {
     final p = _connectedPort;
     _isConnected = false;
     _connectedPort = '';
+    _activeCanConfig = null;
 
     if (p.isNotEmpty) {
       onDisconnected?.call();

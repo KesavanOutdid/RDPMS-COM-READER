@@ -8,7 +8,7 @@ import '../../../core/config/models.dart';
 import '../../../core/controllers/port_controller.dart';
 import '../../../utils/theme/app_theme.dart';
 import 'tab_view.dart';
-import '../../firmware_upload/views/firmware_upload_dialog.dart';
+// import '../../firmware_upload/views/firmware_upload_dialog.dart';
 import '../../firmware_upload/views/bulk_firmware_dialog.dart';
 import 'calibration_dialog.dart';
 import 'device_test_dialog.dart';
@@ -455,6 +455,7 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
                 ),
               ),
               if (!AppConstants.showOnlyTestOption) ...[
+                /*
                 const SizedBox(width: 6),
                 SizedBox(
                   height: 30,
@@ -528,6 +529,7 @@ class _SerialPortScreenState extends State<SerialPortScreen> {
                     },
                   ),
                 ),
+                */
                 const SizedBox(width: 6),
                 SizedBox(
                   height: 30,

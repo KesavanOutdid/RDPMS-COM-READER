@@ -57,20 +57,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Future<void> _fetchSerialNumbers() async {
-    try {
-      final request = await _httpClient.getUrl(Uri.parse('${AppConstants.apiBaseUrl}/tests/serial-numbers'));
-      final response = await request.close();
-      if (response.statusCode == 200) {
-        final body = await response.transform(utf8.decoder).join();
-        final json = jsonDecode(body);
-        if (json['success'] == true) {
-          final List<dynamic> list = json['serialNumbers'];
-          setState(() {
-            _serialNumbers = ['All', ...list.map((e) => e.toString())];
-          });
+    final hostsToTry = [AppConstants.backendHost, '127.0.0.1', 'localhost', '192.168.0.19'];
+    for (final host in hostsToTry.toSet()) {
+      try {
+        final request = await _httpClient.getUrl(Uri.parse('http://$host:${AppConstants.backendPort}/api/tests/serial-numbers')).timeout(const Duration(seconds: 3));
+        final response = await request.close();
+        if (response.statusCode == 200) {
+          final body = await response.transform(utf8.decoder).join();
+          final json = jsonDecode(body);
+          if (json['success'] == true) {
+            final List<dynamic> list = json['serialNumbers'];
+            setState(() {
+              _serialNumbers = ['All', ...list.map((e) => e.toString())];
+            });
+          }
+          break;
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
   }
 
   Future<void> _fetchData({required bool isRefresh}) async {
@@ -81,6 +85,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
       _isLoading = true;
       if (isRefresh) _isInitialLoading = true;
     });
+
+    final hostsToTry = [AppConstants.backendHost, '127.0.0.1', 'localhost', '192.168.0.19'];
+    bool fetched = false;
 
     try {
       final queryParams = <String, String>{
@@ -99,34 +106,43 @@ class _ReportsScreenState extends State<ReportsScreen> {
         queryParams['cursor'] = _nextCursor!;
       }
 
-      final uri = Uri.http('${AppConstants.backendHost}:${AppConstants.backendPort}', '/api/tests', queryParams);
-      final request = await _httpClient.getUrl(uri);
-      final response = await request.close();
+      for (final host in hostsToTry.toSet()) {
+        try {
+          final uri = Uri.http('$host:${AppConstants.backendPort}', '/api/tests', queryParams);
+          final request = await _httpClient.getUrl(uri).timeout(const Duration(seconds: 3));
+          final response = await request.close();
 
-      if (response.statusCode == 200) {
-        final body = await response.transform(utf8.decoder).join();
-        final json = jsonDecode(body);
-        
-        if (json['success'] == true) {
-          final List<dynamic> newRecords = json['records'];
-          setState(() {
-            if (isRefresh) {
-              _records = newRecords;
-            } else {
-              _records.addAll(newRecords);
+          if (response.statusCode == 200) {
+            final body = await response.transform(utf8.decoder).join();
+            final json = jsonDecode(body);
+            
+            if (json['success'] == true) {
+              final List<dynamic> newRecords = json['records'];
+              setState(() {
+                if (isRefresh) {
+                  _records = newRecords;
+                } else {
+                  _records.addAll(newRecords);
+                }
+                _nextCursor = json['nextCursor'];
+                _calculateStats();
+              });
+              fetched = true;
             }
-            _nextCursor = json['nextCursor'];
-            _calculateStats();
-          });
+            break;
+          }
+        } catch (_) {
+          // Try next host candidate
         }
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to load reports from backend.', style: GoogleFonts.inter(color: Colors.white)),
-          backgroundColor: AppTheme.errorColor,
-        ),
-      );
+      if (!fetched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load reports from backend.', style: GoogleFonts.inter(color: Colors.white)),
+            backgroundColor: AppTheme.errorColor,
+          ),
+        );
+      }
     } finally {
       setState(() {
         _isLoading = false;
@@ -369,13 +385,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: pw.CrossAxisAlignment.end,
                   children: [
-                    pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        pw.Text('RDPMS Quality Control System - Official Certificate', style: pw.TextStyle(font: fontBold, fontSize: 8, color: PdfColors.grey700)),
-                        pw.Text('This report is electronically generated and logged into Atlas Database.', style: pw.TextStyle(font: font, fontSize: 7.5, color: PdfColors.grey600)),
-                      ],
-                    ),
+                    pw.SizedBox(),
                     // Verified By Signature Box (Bottom Right)
                     pw.Container(
                       width: 190,
